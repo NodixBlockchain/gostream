@@ -19,13 +19,11 @@ type inputChannelBuffer struct {
 }
 
 type inputChannel struct {
-	sampleRate  int
-	channels    int
-	nReadBuffer int
-	buffers     []inputChannelBuffer
-	r           *http.Request
-	totalRead   int
-	startTime   time.Time
+	sampleRate int
+	channels   int
+	buffers    []inputChannelBuffer
+	totalRead  int
+	startTime  time.Time
 }
 
 type roomClient struct {
@@ -175,6 +173,7 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("content-type", "audio/wav")
 	w.Header().Set("content-Length", "2400000000")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(200)
 
 	/*
@@ -257,11 +256,9 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var newChannel inputChannel
-	newChannel.r = r
-	newChannel.totalRead = 0
 	newChannel.sampleRate = 48000
 	newChannel.channels = 1
-	newChannel.nReadBuffer = 0
+	newChannel.totalRead = 0
 
 	myInputId = len(qRoom.inputs)
 	qRoom.inputs = append(qRoom.inputs, newChannel)

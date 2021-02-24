@@ -1,0 +1,131 @@
+<html>
+<head>
+
+</head>
+<body>
+
+    <script>
+
+        var g={recording : false,totalSent:0,audioContext:null}
+
+        function convertoFloat32ToInt16(buffer) {
+            var l = buffer.length;  //Buffer
+            var buf = new Int16Array(l);
+
+            while (l--) {
+                s = Math.max(-1, Math.min(1, buffer[l]));
+                buf[l] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+          
+            return buf.buffer;
+        }
+
+
+
+
+        function play(url) {
+            var context = new (window.AudioContext || window.webkitAudioContext)();
+            var audioStack = [];
+            var nextTime = 0;
+
+            fetch(url).then(function(response) {
+
+                var reader = response.body.getReader();
+
+                function myread(){
+
+                    reader.read().then(({ value, done })=> {
+                        
+                        audioStack.push(value.buffer);
+
+                        while ( audioStack.length) {
+
+                            var buffer    = new Int16Array(audioStack.shift());
+                            var source    = context.createBufferSource();
+                            
+                            var myArrayBuffer = context.createBuffer(1, buffer.length , 48000);
+                            var nowBuffering = myArrayBuffer.getChannelData(0);
+        
+                            for (var i = 0; i < myArrayBuffer.length; i++) {
+                                nowBuffering[i] = buffer[i] / 32768.0;
+                            }                       
+                            
+                            source.buffer = myArrayBuffer;
+
+                            source.connect(context.destination);
+                            if (nextTime == 0)
+                                nextTime = context.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+                                
+                            source.start(nextTime);
+                            nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
+                        }
+                        
+                        myread();
+                    });
+                }
+                myread();
+            })
+
+            function scheduleBuffers() {
+                while ( audioStack.length) {
+                    var buffer    = new Int16Array(audioStack.shift());
+                    var source    = context.createBufferSource();
+                    
+                    var myArrayBuffer = context.createBuffer(1, buffer.length , 48000);
+                    var nowBuffering = myArrayBuffer.getChannelData(0);
+  
+                    for (var i = 0; i < myArrayBuffer.length; i++) {
+                        nowBuffering[i] = buffer[i] / 32768.0;
+                    }                       
+                    
+                    source.buffer = myArrayBuffer;
+
+                    source.connect(context.destination);
+                    if (nextTime == 0)
+                        nextTime = context.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+                        
+                    source.start(nextTime);
+                    nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
+                };
+            }
+        }
+
+        function startPlaying()
+        {
+            play('http://localhost:8081/joinRoom?roomID=1');
+        }
+
+
+        function stopReccording()
+        {
+            if (g.audioInput) {
+				g.audioInput.disconnect();
+				g.audioInput = null;
+			}
+			if (g.gainNode) {
+				g.gainNode.disconnect();
+				g.gainNode = null;
+			}
+			if (g.recorder) {
+				g.recorder.disconnect();
+				g.recorder = null;
+			}
+
+            g.stream.getTracks()[0].stop()
+
+
+            g.recording = false;
+        }
+
+        
+
+    </script>
+
+    
+
+    <button id="reccord" onclick="startPlaying();">play</button>
+
+</body>
+
+
+</html>
