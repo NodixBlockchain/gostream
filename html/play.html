@@ -1,0 +1,220 @@
+<html>
+<head>
+    <script src="http://localhost:8081/js/opus-stream-decoder.js"></script>
+</head>
+<body>
+
+    <script>
+
+        var g={recording : false,totalSent:0,audioContext:null}
+        
+        var currentbuffer=new Uint8Array();
+        var context = null
+        var audio
+
+        let totalSamplesDecoded = 0;
+
+        function playOpus(opusFile){
+
+            var audioStack = [];
+            var nextTime = 0;
+
+            context = new (window.AudioContext || window.webkitAudioContext)();
+
+                  // Fetch a file and decode it.
+            fetch(opusFile)
+            .then(decodeOpusResponse)
+            .then(_ => console.log('decoded '+totalSamplesDecoded+' samples.'))
+            .catch(console.error);
+
+            // decode Fetch response
+            function decodeOpusResponse(response) {
+                if (!response.ok)
+                throw Error('Invalid Response: '+response.status+' '+response.statusText)
+                if (!response.body)
+                throw Error('ReadableStream not yet supported in this browser.');
+
+                const decoder = new OpusStreamDecoder({onDecode});
+                const reader = response.body.getReader();
+
+                // TODO fail on decode() error and exit read() loop
+                return reader.read().then(async function evalChunk({done, value}) 
+                {
+                    //console.log('recv ' + done)
+                    //console.log(value)
+                    if (done) return;
+
+                    await decoder.ready;
+                    decoder.decode(value);
+
+                    return reader.read().then(evalChunk);
+                })
+            }
+
+            // Callback that receives decoded PCM OpusStreamDecodedAudio
+            function onDecode({left, right, samplesDecoded, sampleRate}) {
+
+                audioStack.push(left);
+
+                while ( audioStack.length) {
+                    var buffer    = audioStack.shift();
+                    var frameCount =  buffer.length;
+
+                    var myArrayBuffer = context.createBuffer(1,frameCount, sampleRate);
+
+                    var nowBuffering = myArrayBuffer.getChannelData(0);
+                    for (var i = 0; i < frameCount; i++) {
+                        nowBuffering[i] = buffer[i];
+                    }                    
+
+                    var source    = context.createBufferSource();
+                    source.buffer = myArrayBuffer;
+                    source.connect(context.destination);
+                    if (nextTime == 0)
+                        nextTime = context.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+
+                    source.start(nextTime);
+
+                    nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
+                }
+                totalSamplesDecoded+=samplesDecoded;
+            }
+        }
+
+
+        function concatTypedArrays(a, b) { // a, b TypedArray of same type
+            var c = new (b.constructor)(a.length + b.length);
+            c.set(a, 0);
+            c.set(b, a.length);
+            return c;
+        }
+
+        function copy(src)  {
+            var dst = new ArrayBuffer(src.byteLength);
+            new Uint8Array(dst).set(new Uint8Array(src));
+            return dst;
+        }
+
+
+
+        function play(url) {
+
+/*
+            audio=document.createElement('AUDIO');
+            audio.setAttribute('src',url);
+            audio.play();
+            document.body.append(audio)
+            return;
+*/
+            var audioStack = [];
+            var nextTime = 0;
+
+            context = new (window.AudioContext || window.webkitAudioContext)();
+
+            fetch(url).then(function(response) {
+
+                var reader = response.body.getReader();
+
+                function myread(){
+
+                    reader.read().then(({ value, done })=> {
+
+                        /*
+                        currentbuffer = concatTypedArrays(currentbuffer, value)
+                        if(currentbuffer.byteLength > 8*1024)
+                        {
+                            var mybuffer= copy(currentbuffer);
+                            currentbuffer = new Uint8Array();
+                        */
+                            context.decodeAudioData(value.buffer).then(function(buffer) {
+
+                                console.log('decoded buffer ');
+                                console.log(buffer);
+                                
+                    
+                                audioStack.push(buffer);
+                                while ( audioStack.length) {
+                                    var buffer    = audioStack.shift();
+                                    var source    = context.createBufferSource();
+                                    source.buffer = buffer;
+                                    source.connect(context.destination);
+                                    if (nextTime == 0)
+                                        nextTime = context.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+                                    source.start(nextTime);
+                                    nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
+                                }
+                            },function(){ console.log('errer') });
+                       // }
+                        
+                        /*
+                        audioStack.push(value.buffer);
+
+                        while ( audioStack.length) {
+
+                            var buffer    = new Int16Array(audioStack.shift());
+                            var source    = context.createBufferSource();
+                            
+                            var myArrayBuffer = context.createBuffer(1, buffer.length , 48000);
+                            var nowBuffering = myArrayBuffer.getChannelData(0);
+        
+                            for (var i = 0; i < myArrayBuffer.length; i++) {
+                                nowBuffering[i] = buffer[i] / 32768.0;
+                            }                       
+                            var source    = context.createBufferSource();
+                            source.buffer = myArrayBuffer;
+
+                            source.connect(context.destination);
+                            if (nextTime == 0)
+                                nextTime = context.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+                                
+                            source.start(nextTime);
+                            nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
+                        }
+                        */
+                        
+                        myread();
+                    });
+                }
+                myread();
+            })
+        }
+
+        function startPlaying()
+        {
+            playOpus('http://localhost:8081/joinRoom?roomID=1');
+        }
+
+
+        function stopReccording()
+        {
+            if (g.audioInput) {
+				g.audioInput.disconnect();
+				g.audioInput = null;
+			}
+			if (g.gainNode) {
+				g.gainNode.disconnect();
+				g.gainNode = null;
+			}
+			if (g.recorder) {
+				g.recorder.disconnect();
+				g.recorder = null;
+			}
+
+            g.stream.getTracks()[0].stop()
+
+
+            g.recording = false;
+        }
+
+        
+
+    </script>
+
+    
+
+    <button id="reccord" onclick="startPlaying();">play</button>
+
+</body>
+
+
+</html>

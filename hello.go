@@ -1,5 +1,7 @@
 package main
 
+import "C"
+
 import (
 	"encoding/binary"
 	"fmt"
@@ -11,6 +13,8 @@ import (
 
 	"github.com/go-audio/riff"
 	"github.com/gorilla/websocket"
+	"github.com/xlab/vorbis-go/vorbis"
+	"gopkg.in/hraban/opus.v2"
 )
 
 type inputChannelBuffer struct {
@@ -55,7 +59,7 @@ var roomList []Room
 // wsHandler implements the Handler Interface
 type wsHandler struct{}
 
-type Encoder struct {
+type WavEncoder struct {
 	w            http.ResponseWriter
 	SampleRate   int
 	BitDepth     int
@@ -63,8 +67,8 @@ type Encoder struct {
 	WrittenBytes int
 }
 
-func NewEncoder(w http.ResponseWriter, outChan outputChannel) *Encoder {
-	return &Encoder{
+func NewWavEncoder(w http.ResponseWriter, outChan outputChannel) *WavEncoder {
+	return &WavEncoder{
 		w:            w,
 		SampleRate:   outChan.sampleRate,
 		BitDepth:     16,
@@ -72,12 +76,12 @@ func NewEncoder(w http.ResponseWriter, outChan outputChannel) *Encoder {
 		WrittenBytes: 0}
 }
 
-func (e *Encoder) AddLE(src interface{}) error {
+func (e *WavEncoder) AddLE(src interface{}) error {
 	e.WrittenBytes += binary.Size(src)
 	return binary.Write(e.w, binary.LittleEndian, src)
 }
 
-func (e *Encoder) writeHeader() error {
+func (e *WavEncoder) writeHeader() error {
 
 	lenAudio := 0x1FFFFFFF
 
@@ -142,6 +146,387 @@ func (e *Encoder) writeHeader() error {
 	return nil
 }
 
+type OggVorbisEncoder struct {
+	w          http.ResponseWriter
+	SampleRate int
+	BitDepth   int
+	NumChans   int
+
+	vi vorbis.Info
+	vd vorbis.DspState
+	vb vorbis.Block
+	os vorbis.OggStreamState
+	vc vorbis.Comment
+}
+
+func NewOggEncoder(w http.ResponseWriter, outChan outputChannel) *OggVorbisEncoder {
+
+	return &OggVorbisEncoder{
+		w:          w,
+		SampleRate: outChan.sampleRate,
+		BitDepth:   16,
+		NumChans:   outChan.channels}
+}
+
+func (e *OggVorbisEncoder) writeHeader() int32 {
+
+	var header, header_comm, header_code vorbis.OggPacket
+	var og vorbis.OggPage
+
+	vorbis.InfoInit(&e.vi)
+	vorbis.CommentInit(&e.vc)
+
+	ve := vorbis.EncodeInitVbr(&e.vi, e.NumChans, e.SampleRate, 0.4)
+
+	if ve != 0 {
+		log.Println("error new ogg encoder ", ve)
+		return ve
+	}
+
+	ve = vorbis.AnalysisInit(&e.vd, &e.vi)
+
+	ve = vorbis.BlockInit(&e.vd, &e.vb)
+
+	ve = vorbis.OggStreamInit(&e.os, 1)
+
+	ve = vorbis.AnalysisHeaderout(&e.vd, &e.vc, &header, &header_comm, &header_code)
+
+	ve = vorbis.OggStreamPacketin(&e.os, &header)
+	ve = vorbis.OggStreamPacketin(&e.os, &header_comm)
+	ve = vorbis.OggStreamPacketin(&e.os, &header_code)
+
+	for vorbis.OggStreamFlush(&e.os, &og) != 0 {
+		e.w.Write(og.Header)
+		e.w.Write(og.Body)
+	}
+
+	return ve
+}
+
+func (e *OggVorbisEncoder) writeBuffer(newBuffer []int16) int32 {
+
+	var og vorbis.OggPage
+	var op vorbis.OggPacket
+
+	bufLen := len(newBuffer)
+
+	goBuff := make([]float32, bufLen, bufLen)
+
+	for i := 0; i < bufLen; i++ {
+		goBuff[i] = float32(newBuffer[i]) / 32768.0
+	}
+
+	ve := vorbis.AnalysisWriteBuffer(&e.vd, goBuff, int32(bufLen))
+
+	if ve != 0 {
+		fmt.Println("vorbis.AnalysisWrote failed:", ve)
+		return ve
+	}
+
+	/* vorbis does some data preanalysis, then divvies up blocks for
+	more involved (potentially parallel) processing.  Get a single
+	block for encoding now */
+	for vorbis.AnalysisBlockout(&e.vd, &e.vb) == 1 {
+
+		/* analysis, assume we want to use bitrate management */
+		ve = vorbis.Analysis(&e.vb, nil)
+
+		if ve != 0 {
+			fmt.Println("vorbis.Analysis failed:", ve)
+			return ve
+		}
+
+		ve = vorbis.BitrateAddblock(&e.vb)
+
+		if ve != 0 {
+			fmt.Println("vorbis.BitrateAddblock failed:", ve)
+			return ve
+		}
+
+		for vorbis.BitrateFlushpacket(&e.vd, &op) != 0 {
+
+			/* weld the packet into the bitstream */
+			ve = vorbis.OggStreamPacketin(&e.os, &op)
+
+			if ve != 0 {
+				fmt.Println("vorbis.OggStreamPacketin failed:", ve)
+				return ve
+			}
+
+			/* write out pages (if any) */
+			for vorbis.OggStreamPageout(&e.os, &og) != 0 {
+
+				e.w.Write(og.Header)
+				e.w.Write(og.Body)
+			}
+		}
+	}
+
+	return ve
+}
+
+type opusOGGHeader struct {
+	version int // The Ogg Opus format version, in the range 0...255. More...
+
+	channel_count int //The number of channels, in the range 1...255. More...
+
+	pre_skip uint //The number of samples that should be discarded from the beginning of the stream. More...
+
+	input_sample_rate uint32 //The sampling rate of the original input. More...
+	output_gain       int    //The gain to apply to the decoded output, in dB, as a Q8 value in the range -32768...32767. More...
+
+	mapping_family int //The channel mapping family, in the range 0...255. More...
+
+	stream_count int //The number of Opus streams in each Ogg packet, in the range 1...255. More...
+
+	coupled_count int //The number of coupled Opus streams in each Ogg packet, in the range 0...127. More...
+
+	mapping [255]byte
+}
+
+type OggOpusEncoder struct {
+	w           http.ResponseWriter
+	SampleRate  int
+	NumChans    int
+	frameSize   int
+	frameSizeMs float32
+
+	encdata      []byte
+	opusEnc      *opus.Encoder
+	samplesWrote int64
+
+	useOgg   bool
+	Packetno vorbis.OggInt64
+	opusHDR  opusOGGHeader
+	os       vorbis.OggStreamState
+	vc       vorbis.Comment
+}
+
+func NewOpusEncoder(w http.ResponseWriter, useOgg bool, outChan outputChannel) *OggOpusEncoder {
+
+	return &OggOpusEncoder{
+		w:            w,
+		samplesWrote: 0,
+		useOgg:       useOgg,
+		Packetno:     0,
+		SampleRate:   outChan.sampleRate,
+		NumChans:     outChan.channels}
+}
+
+func (e *OggOpusEncoder) PutUint32(b []byte, v uint32) []byte {
+	var r []byte
+
+	r = append(b, byte(v))
+	r = append(r, byte(v>>8))
+	r = append(r, byte(v>>16))
+	r = append(r, byte(v>>24))
+
+	return r
+}
+
+func (e *OggOpusEncoder) PutUint16(b []byte, v uint16) []byte {
+	var r []byte
+
+	r = append(b, byte(v))
+	r = append(r, byte(v>>8))
+
+	return r
+}
+
+func (e *OggOpusEncoder) PutInt16(b []byte, v int16) []byte {
+	var r []byte
+	r = append(b, byte(v))
+	r = append(r, byte(v>>8))
+	return r
+}
+
+func (e *OggOpusEncoder) writeHeader() error {
+
+	var err error
+
+	e.frameSize = (10 * e.SampleRate) / 1000
+	e.frameSizeMs = float32(e.frameSize) * 1000.0 / float32(e.SampleRate)
+
+	switch e.frameSizeMs {
+	case 2.5, 5, 10, 20, 40, 60:
+		// Good.
+	default:
+		return fmt.Errorf("Illegal frame size")
+	}
+
+	if e.useOgg {
+		var og vorbis.OggPage
+		var header, comments vorbis.OggPacket
+		var packetBuffer []byte
+
+		e.opusHDR.version = 1
+		e.opusHDR.channel_count = e.NumChans
+		e.opusHDR.pre_skip = 0
+		e.opusHDR.input_sample_rate = uint32(e.SampleRate)
+		e.opusHDR.output_gain = 0
+		e.opusHDR.mapping_family = 0
+		e.opusHDR.stream_count = 1
+		e.opusHDR.coupled_count = 0
+		e.opusHDR.mapping[0] = 0
+
+		packetBuffer = []byte("OpusHead")
+		packetBuffer = append(packetBuffer, byte(e.opusHDR.version))
+		packetBuffer = append(packetBuffer, byte(e.opusHDR.channel_count))
+		packetBuffer = e.PutUint16(packetBuffer, uint16(e.opusHDR.pre_skip))
+		packetBuffer = e.PutUint32(packetBuffer, uint32(e.opusHDR.input_sample_rate))
+		packetBuffer = e.PutInt16(packetBuffer, int16(e.opusHDR.output_gain))
+		packetBuffer = append(packetBuffer, byte(e.opusHDR.mapping_family))
+
+		if e.opusHDR.mapping_family != 0 {
+			packetBuffer = append(packetBuffer, byte(e.opusHDR.stream_count))
+			for i := 0; i < e.NumChans; i++ {
+				packetBuffer = append(packetBuffer, e.opusHDR.mapping[i])
+			}
+
+		}
+		//packetBuffer = append(packetBuffer, e.opusHDR.mapping[:]...)
+
+		//log.Printf("packetBuffer : %x", packetBuffer)
+
+		header.Packet = packetBuffer
+		header.Bytes = len(packetBuffer)
+		header.BOS = 1
+		header.EOS = 0
+		header.Granulepos = 0
+		header.Packetno = 0
+
+		ve := vorbis.OggStreamInit(&e.os, 1)
+
+		if ve != 0 {
+			return fmt.Errorf("unable to initialize ogg stream ")
+		}
+		ve = vorbis.MyOggStreamPacketin(&e.os, &header)
+
+		if ve != 0 {
+			return fmt.Errorf("unable to write header packet")
+		}
+
+		for vorbis.OggStreamFlush(&e.os, &og) != 0 {
+			e.w.Write(og.Header)
+			e.w.Write(og.Body)
+		}
+
+		/*
+			vorbis.CommentInit(&e.vc)
+			vorbis.CommentAdd(&e.vc, "ARTIST=hello")
+			vorbis.CommentAdd(&e.vc, "ENCODER=gostream")
+			vorbis.CommentAdd(&e.vc, "TITLE=room")
+			vorbis.CommentheaderOut(&e.vc, &comments)
+		*/
+
+		encoderName := "goStream"
+
+		packetBuffer = []byte("OpusTags")
+		packetBuffer = e.PutUint32(packetBuffer, uint32(len(encoderName)))
+		packetBuffer = append(packetBuffer, []byte(encoderName)...)
+		packetBuffer = e.PutUint32(packetBuffer, uint32(0))
+
+		comments.Packet = packetBuffer
+		comments.Bytes = len(packetBuffer)
+		comments.BOS = 0
+		comments.EOS = 0
+		comments.Granulepos = 0
+		comments.Packetno = 1
+
+		ve = vorbis.MyOggStreamPacketin(&e.os, &comments)
+
+		if ve != 0 {
+			return fmt.Errorf("unable to write comment packet")
+		}
+
+		for vorbis.OggStreamFlush(&e.os, &og) != 0 {
+			e.w.Write(og.Header[:og.HeaderLen])
+			e.w.Write(og.Body[:og.BodyLen])
+		}
+		e.Packetno = 2
+	}
+
+	e.opusEnc, err = opus.NewEncoder(e.SampleRate, e.NumChans, opus.AppVoIP)
+	if err != nil {
+		return fmt.Errorf("error initializing  opus encoder")
+	}
+	e.encdata = make([]byte, 1000)
+
+	return nil
+}
+
+func (e *OggOpusEncoder) writeBuffer(newBuffer []int16) error {
+
+	n, err := e.opusEnc.Encode(newBuffer, e.encdata)
+	if err != nil {
+		return fmt.Errorf("error encoding")
+	}
+
+	if e.useOgg {
+
+		var og vorbis.OggPage
+		var op vorbis.OggPacket
+
+		op.Packet = e.encdata[:n]
+		op.Bytes = n
+		op.BOS = 0
+		op.EOS = 0
+		op.Granulepos = vorbis.OggInt64(e.samplesWrote)
+		op.Packetno = e.Packetno
+
+		log.Println("ogg gp ", op.Granulepos)
+
+		ve := vorbis.MyOggStreamPacketin(&e.os, &op)
+		if ve != 0 {
+			return fmt.Errorf("error packetizing opus")
+		}
+
+		for vorbis.OggStreamPageout(&e.os, &og) != 0 {
+			e.w.Write(og.Header[:og.HeaderLen])
+			e.w.Write(og.Body[:og.BodyLen])
+		}
+	} else {
+		e.w.Write(e.encdata[:n])
+	}
+
+	e.samplesWrote += int64(len(newBuffer))
+	e.Packetno++
+
+	/*
+		for nFrame := 0; nFrame < len(newBuffer); nFrame += frameSize {
+
+			log.Println(" buffer : ", len(newBuffer[nFrame:nFrame+frameSize]))
+
+			n, err := e.Encode(newBuffer[nFrame:nFrame+frameSize], data)
+			if err != nil {
+				http.Error(w, "error encoding opus", http.StatusInternalServerError)
+				return
+			}
+
+			totalWrote += vorbis.OggInt64(frameSize)
+
+			op.Packet = data[:n]
+			op.Bytes = n
+			op.BOS = 0
+			op.EOS = 0
+			op.Granulepos = totalWrote
+			op.Packetno = Packetno
+			ve = vorbis.MyOggStreamPacketin(&os, &op)
+			if ve != 0 {
+				http.Error(w, "error encoding ogg", http.StatusInternalServerError)
+				return
+			}
+
+			Packetno++
+
+			// only the first N bytes are opus data. Just like io.Reader.
+			//w.Write(data[:n])
+		}
+	*/
+
+	return nil
+}
+
 func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var roomID int
@@ -169,26 +554,11 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//w.Write([]byte("HTTP 200 OK\r\ncontent-type:audio/wav\r\nContent-Length: 2400000000\r\n\r\n"))
-
-	w.Header().Set("content-type", "audio/wav")
-	w.Header().Set("content-Length", "2400000000")
+	w.Header().Set("content-type", "appplication/stream")
+	//w.Header().Set("Transfer-Encoding", "chunked")
+	//w.Header().Set("content-Length", "2400000")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(200)
-
-	/*
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
-			return
-		}
-
-		conn, bufrw, err := hj.Hijack()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	*/
 
 	// Don't forget to close the connection:
 	//defer conn.Close()
@@ -204,19 +574,34 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("new client : ", len(roomList[0].clients))
 
-	e := NewEncoder(roomList[roomFound].clients[newClientIndex].clientConn, roomList[roomFound].output)
-	err = e.writeHeader()
-	if err != nil {
-		http.Error(w, "error writing wav header  ", http.StatusInternalServerError)
+	/*
+		e := NewEncoderWav(roomList[roomFound].clients[newClientIndex].clientConn, roomList[roomFound].output)
+		err = e.writeHeader()
+		if err != nil {
+			http.Error(w, "error writing wav header  ", http.StatusInternalServerError)
+			return
+		}
+	*/
+
+	/*
+		e := NewOggEncoder(roomList[roomFound].clients[newClientIndex].clientConn, roomList[roomFound].output)
+		oggerr := e.writeHeader()
+		if oggerr != 0 {
+			http.Error(w, "error writing ogg header  ", http.StatusInternalServerError)
+			return
+		}
+	*/
+
+	e := NewOpusEncoder(roomList[roomFound].clients[newClientIndex].clientConn, true, roomList[roomFound].output)
+	opuserr := e.writeHeader()
+	if opuserr != nil {
+		http.Error(w, "error writing opus header  ", http.StatusInternalServerError)
 		return
 	}
 
 	for {
 		newBuffer := <-roomList[roomFound].clients[newClientIndex].channel
-		err = binary.Write(w, binary.LittleEndian, newBuffer)
-		if err != nil {
-			//log.Println("write error ", err)
-		}
+		e.writeBuffer(newBuffer)
 	}
 
 }
@@ -243,8 +628,8 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// upgrader is needed to upgrade the HTTP Connection to a websocket Connection
 	upgrader := &websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
 	}
 
 	//Upgrading HTTP Connection to websocket connection
@@ -374,6 +759,8 @@ func main() {
 		log.Fatal(http.ListenAndServe(":8080", router))
 	}()
 
+	http.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
+	http.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
 	http.HandleFunc("/joinRoom", handleJoinRoom)
 	log.Fatal(http.ListenAndServe(":8081", nil))
 
