@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/NodixBlockchain/vorbis-go/vorbis"
 	"github.com/go-audio/riff"
 	"github.com/gorilla/websocket"
-	"github.com/xlab/vorbis-go/vorbis"
 	"gopkg.in/hraban/opus.v2"
 )
 

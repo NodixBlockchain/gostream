@@ -21,7 +21,7 @@
 
             context = new (window.AudioContext || window.webkitAudioContext)();
 
-                  // Fetch a file and decode it.
+            // Fetch a file and decode it.
             fetch(opusFile)
             .then(decodeOpusResponse)
             .then(_ => console.log('decoded '+totalSamplesDecoded+' samples.'))
@@ -40,8 +40,6 @@
                 // TODO fail on decode() error and exit read() loop
                 return reader.read().then(async function evalChunk({done, value}) 
                 {
-                    //console.log('recv ' + done)
-                    //console.log(value)
                     if (done) return;
 
                     await decoder.ready;
@@ -82,30 +80,8 @@
         }
 
 
-        function concatTypedArrays(a, b) { // a, b TypedArray of same type
-            var c = new (b.constructor)(a.length + b.length);
-            c.set(a, 0);
-            c.set(b, a.length);
-            return c;
-        }
-
-        function copy(src)  {
-            var dst = new ArrayBuffer(src.byteLength);
-            new Uint8Array(dst).set(new Uint8Array(src));
-            return dst;
-        }
-
-
-
         function play(url) {
 
-/*
-            audio=document.createElement('AUDIO');
-            audio.setAttribute('src',url);
-            audio.play();
-            document.body.append(audio)
-            return;
-*/
             var audioStack = [];
             var nextTime = 0;
 
@@ -119,34 +95,6 @@
 
                     reader.read().then(({ value, done })=> {
 
-                        /*
-                        currentbuffer = concatTypedArrays(currentbuffer, value)
-                        if(currentbuffer.byteLength > 8*1024)
-                        {
-                            var mybuffer= copy(currentbuffer);
-                            currentbuffer = new Uint8Array();
-                        */
-                            context.decodeAudioData(value.buffer).then(function(buffer) {
-
-                                console.log('decoded buffer ');
-                                console.log(buffer);
-                                
-                    
-                                audioStack.push(buffer);
-                                while ( audioStack.length) {
-                                    var buffer    = audioStack.shift();
-                                    var source    = context.createBufferSource();
-                                    source.buffer = buffer;
-                                    source.connect(context.destination);
-                                    if (nextTime == 0)
-                                        nextTime = context.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
-                                    source.start(nextTime);
-                                    nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
-                                }
-                            },function(){ console.log('errer') });
-                       // }
-                        
-                        /*
                         audioStack.push(value.buffer);
 
                         while ( audioStack.length) {
@@ -170,8 +118,6 @@
                             source.start(nextTime);
                             nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
                         }
-                        */
-                        
                         myread();
                     });
                 }
