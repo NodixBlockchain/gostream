@@ -60,36 +60,52 @@ type Room struct {
 	clientsMut sync.Mutex
 
 	output outputChannel
+	ticker *time.Ticker
 }
 
-var roomList []Room
+var roomList []*Room
+var roomsMut sync.Mutex
 
-func (r *Room) removeInput(idx int) {
-	r.inputMut.Lock()
+func grabRoom(roomId int) *Room {
 
-	r.inputs[idx] = r.inputs[len(r.inputs)-1]
-	r.inputs = r.inputs[:len(r.inputs)-1]
+	var newRoom *Room = nil
 
-	r.inputMut.Unlock()
-}
+	roomsMut.Lock()
 
-func (r *Room) getInput(inputId int) *inputChannel {
+	defer roomsMut.Unlock()
 
-	var myinput *inputChannel = nil
+	//if room already exist return it
 
-	r.inputMut.Lock()
+	for i := 0; i < len(roomList); i++ {
 
-	for i := 0; i < len(r.inputs); i++ {
-
-		if r.inputs[i].id == inputId {
-			myinput = r.inputs[i]
-			break
+		if roomList[i].id == roomId {
+			return roomList[i]
 		}
 	}
 
-	r.inputMut.Unlock()
+	//create new room
 
-	return myinput
+	sampleRate := 48000
+	channels := 1
+	latencyMS := 100
+
+	newRoom = &Room{id: roomId, name: "my room", desc: "", RoomType: "", inputs: make([]*inputChannel, 0, 128), output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
+	roomList = append(roomList, newRoom)
+
+	newRoom.ticker = time.NewTicker(time.Millisecond * time.Duration(latencyMS))
+
+	go func(myroom *Room) {
+
+		for t := range myroom.ticker.C {
+			//Call the periodic function here.
+			var buffers = myroom.mixOutputChannel(t)
+			for _, mybuf := range buffers {
+				myroom.writeClientChannel(mybuf)
+			}
+		}
+	}(newRoom)
+
+	return newRoom
 }
 
 func (r *Room) addInput(sampleRate int, chans int) int {
@@ -104,12 +120,43 @@ func (r *Room) addInput(sampleRate int, chans int) int {
 
 	return newinputId
 }
+
+func (r *Room) getInput(inputId int) *inputChannel {
+
+	r.inputMut.Lock()
+
+	defer r.inputMut.Unlock()
+
+	for _, input := range r.inputs {
+
+		if input.id == inputId {
+			return input
+		}
+	}
+	return nil
+}
+
+func (r *Room) removeInput(id int) {
+	r.inputMut.Lock()
+
+	for idx, input := range r.inputs {
+
+		if input.id == id {
+			r.inputs[idx] = r.inputs[len(r.inputs)-1]
+			r.inputs = r.inputs[:len(r.inputs)-1]
+			break
+		}
+	}
+
+	r.inputMut.Unlock()
+}
+
 func (r *Room) addClient(w http.ResponseWriter) int {
 
 	r.clientsMut.Lock()
 
 	newClientid := r.currentclientId
-	r.clients = append(r.clients, &roomClient{id: newClientid, channel: make(chan []int16, 2), clientConn: w})
+	r.clients = append(r.clients, &roomClient{id: newClientid, channel: make(chan []int16, 1), clientConn: w})
 	r.currentclientId++
 
 	r.clientsMut.Unlock()
@@ -124,7 +171,9 @@ func (r *Room) writeClientChannel(buf clientBuffer) error {
 	for i := 0; i < len(r.clients); i++ {
 
 		if r.clients[i].id == buf.clientid {
+			//if len(r.clients[i].channel) < 2 {
 			r.clients[i].channel <- buf.buffer
+			//}
 			break
 		}
 	}
@@ -136,21 +185,18 @@ func (r *Room) writeClientChannel(buf clientBuffer) error {
 
 func (r *Room) getClient(clientId int) *roomClient {
 
-	var myclient *roomClient = nil
-
 	r.clientsMut.Lock()
+
+	defer r.clientsMut.Unlock()
 
 	for i := 0; i < len(r.clients); i++ {
 
 		if r.clients[i].id == clientId {
-			myclient = r.clients[i]
-			break
+			return r.clients[i]
 		}
 	}
 
-	r.clientsMut.Unlock()
-
-	return myclient
+	return nil
 }
 
 func (r *Room) getClientBuffers() []clientBuffer {
@@ -168,22 +214,22 @@ func (r *Room) getClientBuffers() []clientBuffer {
 	return buffers
 }
 
-func (r *Room) removeClient(idx int) {
+func (r *Room) removeClient(id int) {
 	r.clientsMut.Lock()
 
-	r.clients[idx] = r.clients[len(r.clients)-1]
-	r.clients = r.clients[:len(r.clients)-1]
+	for idx, client := range r.clients {
+
+		if client.id == id {
+			r.clients[idx] = r.clients[len(r.clients)-1]
+			r.clients = r.clients[:len(r.clients)-1]
+			break
+		}
+	}
 
 	r.clientsMut.Unlock()
 }
 
-func (r *Room) createOutputChannel(sampleRate int, channels int, latencyMS int) error {
-
-	r.output = outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}
-	return nil
-}
-
-func (r *Room) mixOutputChannel() []clientBuffer {
+func (r *Room) mixOutputChannel(time time.Time) []clientBuffer {
 
 	nSamples := r.output.buffSize / 2
 
@@ -240,22 +286,13 @@ func (r *Room) mixOutputChannel() []clientBuffer {
 	return clientBuffers
 }
 
-func mixloop(t time.Time, room *Room) {
-
-	var buffers = room.mixOutputChannel()
-
-	for _, mybuf := range buffers {
-		room.writeClientChannel(mybuf)
-	}
-
-}
-
 // wsHandler implements the Handler Interface
 type wsHandler struct{}
 
 func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var roomID int
+	var format string
 
 	roomID, err = strconv.Atoi(r.FormValue("roomID"))
 
@@ -264,34 +301,36 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roomFound := -1
+	format = r.FormValue("format")
 
-	for i := 0; i < len(roomList); i++ {
-
-		if roomList[i].id == roomID {
-
-			roomFound = i
-			break
-		}
+	if len(format) <= 0 {
+		format = "opus"
 	}
 
-	if roomFound == -1 {
+	room := grabRoom(roomID)
+
+	if room == nil {
 		http.Error(w, "room not found", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("content-type", "audio/ogg")
+	if format == "wav" {
+		w.Header().Set("content-type", "audio/wav")
+	} else {
+		w.Header().Set("content-type", "audio/ogg")
+	}
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(200)
 
-	newClientId := roomList[roomFound].addClient(w)
+	newClientId := room.addClient(w)
+	client := room.getClient(newClientId)
 
-	log.Println("new client : ", newClientId)
+	log.Printf("new client : %d in room [%d] %s ", client.id, room.id, room.name)
 
-	client := roomList[roomFound].getClient(newClientId)
+	defer room.removeClient(newClientId)
 
-	e := getEncoder("opus", w, roomList[roomFound].output)
-
+	e := getEncoder(format, w, room.output)
 	err = e.writeHeader()
 
 	if err != nil {
@@ -305,9 +344,6 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-
-	roomList[roomFound].removeClient(newClientId)
-
 }
 
 func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -323,23 +359,25 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roomFound := -1
+	room := grabRoom(roomID)
 
-	for i := 0; i < len(roomList); i++ {
-
-		if roomList[i].id == roomID {
-
-			roomFound = i
-			break
-		}
-	}
-
-	if roomFound == -1 {
+	if room == nil {
 		http.Error(w, "room not found", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("new audio input in %s \n", roomList[roomFound].name)
+	log.Printf("new audio input in %s \n", room.name)
+
+	myInputId = room.addInput(48000, 1)
+	myinput := room.getInput(myInputId)
+
+	if myinput == nil {
+
+		http.Error(w, "unable to add new input to room", http.StatusInternalServerError)
+		return
+	}
+
+	defer room.removeInput(myInputId)
 
 	// upgrader is needed to upgrade the HTTP Connection to a websocket Connection
 	upgrader := &websocket.Upgrader{
@@ -355,15 +393,6 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	myInputId = roomList[roomFound].addInput(48000, 1)
-	myinput := roomList[roomFound].getInput(myInputId)
-
-	if myinput == nil {
-
-		http.Error(w, "unable to add new input to room", http.StatusInternalServerError)
-		return
-	}
-
 	for {
 		_, message, err := wsConn.ReadMessage()
 		if err != nil {
@@ -376,34 +405,11 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	}
 
-	roomList[roomFound].removeInput(myInputId)
-
 }
 
 func main() {
 
-	var myRoom Room
-
-	myRoom.id = 1
-	myRoom.desc = ""
-	myRoom.name = "my room"
-	myRoom.RoomType = ""
-
-	myRoom.createOutputChannel(48000, 1, 100)
-
-	myRoom.inputs = make([]*inputChannel, 0, 128)
-
-	roomList = append(roomList, myRoom)
-
-	ticker := time.NewTicker(time.Millisecond * time.Duration(myRoom.output.latencyMS))
-	go func() {
-		for t := range ticker.C {
-			//Call the periodic function here.
-			mixloop(t, &roomList[0])
-		}
-	}()
-
-	fmt.Println("Hello, World!")
+	fmt.Println("goStream starting !")
 
 	router := http.NewServeMux()
 	router.Handle("/joinRoom", wsHandler{}) //handels websocket connections
