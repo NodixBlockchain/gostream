@@ -4,6 +4,7 @@ import "C"
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+var ciCookieName string = "ci_session"
+var siteURL = "http://localhost"
 
 var roomList []*Room
 var roomsMut sync.Mutex
@@ -40,8 +44,6 @@ func grabRoom(roomId int) *Room {
 	latencyMS := 100
 
 	newRoom = &Room{id: roomId, name: "my room", desc: "", RoomType: "", inputs: make([]*inputChannel, 0, 128), output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
-	roomList = append(roomList, newRoom)
-
 	newRoom.ticker = time.NewTicker(time.Millisecond * time.Duration(latencyMS))
 
 	go func(myroom *Room) {
@@ -55,11 +57,10 @@ func grabRoom(roomId int) *Room {
 		}
 	}(newRoom)
 
+	roomList = append(roomList, newRoom)
+
 	return newRoom
 }
-
-// wsHandler implements the Handler Interface
-type wsHandler struct{}
 
 func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	var err error
@@ -77,6 +78,35 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 
 	if len(format) <= 0 {
 		format = "opus"
+	}
+
+	cookie, err := r.Cookie(ciCookieName)
+	if err == nil {
+		log.Printf("cookie : %s=%s\r\n", cookie.Name, cookie.Value)
+
+		client := &http.Client{}
+
+		url := siteURL + "/Groupes/ecouteGroupe/" + strconv.Itoa(roomID)
+
+		req, httpErr := http.NewRequest("GET", url, nil)
+		if httpErr != nil {
+			log.Printf("http.NewRequest failed : %s %v\r\n", url, httpErr)
+		}
+		req.AddCookie(cookie)
+
+		resp, httpErr := client.Do(req)
+		if httpErr != nil {
+			log.Printf("client.Do(req) failed : %s %v\r\n", url, httpErr)
+		} else {
+
+			body, httpErr := io.ReadAll(resp.Body)
+
+			if httpErr != nil {
+				log.Printf("io.ReadAll(resp.Body) failed : %s %v\r\n", url, httpErr)
+			} else {
+				log.Printf("site response %s \r\n %s\r\n", url, string(body))
+			}
+		}
 	}
 
 	room := grabRoom(roomID)
@@ -117,6 +147,9 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+// wsHandler implements the Handler Interface
+type wsHandler struct{}
 
 func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 

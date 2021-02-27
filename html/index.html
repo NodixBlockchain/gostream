@@ -113,10 +113,25 @@
 
             // decode Fetch response
             function decodeOpusResponse(response) {
+
+                var contentType =''
+
                 if (!response.ok)
                 throw Error('Invalid Response: '+response.status+' '+response.statusText)
                 if (!response.body)
                 throw Error('ReadableStream not yet supported in this browser.');
+
+                for(let entry of response.headers.entries()) {
+                    if(entry[0] == 'content-type')
+                        contentType = entry[1]
+                }      
+
+                if(contentType != 'audio/ogg')
+                {
+                    alert('wrong content type '+contentType)
+                    alert(response.body)
+                    return;
+                }
 
                 const decoder = new OpusStreamDecoder({onDecode});
                 const reader = response.body.getReader();
@@ -174,6 +189,22 @@
                 g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
             fetch(url).then(function(response) {
+
+                console.log(response)
+
+                var contentType =''
+
+                for(let entry of response.headers.entries()) {
+                     if(entry[0] == 'content-type')
+                        contentType = entry[1]
+                }                
+
+                if(contentType != 'audio/wav')
+                {
+                    alert('wrong content type '+contentType)
+                    alert(response.body.readAll())
+                    return;
+                }
 
                 var reader = response.body.getReader();
 
@@ -256,9 +287,34 @@
             g.playing = false
         }
 
+        function getCookie(cname) {
+            var name = cname + "=";
+            var ca = document.cookie.split(';');
+            for(var i = 0; i < ca.length; i++) {
+                var c = ca[i];
+                while (c.charAt(0) == ' ') {
+                c = c.substring(1);
+                }
+                if (c.indexOf(name) == 0) {
+                return c.substring(name.length, c.length);
+                }
+            }
+            return "";
+        }
+
+
         function startPlaying()
         {
             if(g.playing == false){
+
+                g.sessionCookie = getCookie('ci_session')
+
+                if(g.sessionCookie)
+                {
+                    console.log("session")
+                    console.log(g.sessionCookie)
+                }
+            
 
                 $('#play').html('stop')
                 g.playing = true

@@ -19,7 +19,7 @@
                 g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
             // Fetch a file and decode it.
-            fetch(opusFile)
+            fetch(opusFile, {credentials: 'include'})
             .then(decodeOpusResponse)
             .then(_ => console.log('decoded '+totalSamplesDecoded+' samples.'))
             .catch(console.error);
@@ -86,7 +86,7 @@
             if(g.audioContext == null)
                 g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-            fetch(url).then(function(response) {
+            fetch(url, { credentials: 'include' }).then(function(response) {
 
                 var reader = response.body.getReader();
 
