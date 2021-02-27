@@ -1,12 +1,14 @@
 <html>
 <head>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" ></script>
+    <script src="http://localhost:8081/js/opus-stream-decoder.js"></script>
 </head>
 <body>
 
     <script>
 
-        var g={recording : false,totalSent:0,audioContext:null}
+        var g={playing : false,totalSamplesDecoded :0,recording : false,totalSent:0,audioContext:null}
+                
 
         function convertoFloat32ToInt16(buffer) {
             var l = buffer.length;  //Buffer
@@ -33,7 +35,9 @@
 
             g.webSocket = new WebSocket("ws://localhost:8080/joinRoom?roomID=1");
             g.webSocket.binaryType = 'arraybuffer';
-            g.audioContext = new AudioContext();
+
+            if(g.audioContext == null)
+                g.audioContext = new AudioContext();
 
             navigator.mediaDevices.getUserMedia ({audio: true, video: false}).then(function(stream) {
 
@@ -91,13 +95,199 @@
         }
 
         
+    
+
+        function playOpus(opusFile){
+
+            var audioStack = [];
+            var nextTime = 0;
+
+            if(g.audioContext == null)
+                g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // Fetch a file and decode it.
+            fetch(opusFile)
+            .then(decodeOpusResponse)
+            .then(_ => console.log('decoded '+g.totalSamplesDecoded+' samples.'))
+            .catch(console.error);
+
+            // decode Fetch response
+            function decodeOpusResponse(response) {
+                if (!response.ok)
+                throw Error('Invalid Response: '+response.status+' '+response.statusText)
+                if (!response.body)
+                throw Error('ReadableStream not yet supported in this browser.');
+
+                const decoder = new OpusStreamDecoder({onDecode});
+                const reader = response.body.getReader();
+
+                // TODO fail on decode() error and exit read() loop
+                return reader.read().then(async function evalChunk({done, value}) 
+                {
+                    if (done) return;
+                    if(g.playing == false)return;
+
+                    await decoder.ready;
+                    decoder.decode(value);
+
+                    return reader.read().then(evalChunk);
+                })
+            }
+
+            // Callback that receives decoded PCM OpusStreamDecodedAudio
+            function onDecode({left, right, samplesDecoded, sampleRate}) {
+
+                audioStack.push(left);
+
+                while ( audioStack.length) {
+                    var buffer    = audioStack.shift();
+                    var frameCount =  buffer.length;
+
+                    var myArrayBuffer = g.audioContext.createBuffer(1,frameCount, sampleRate);
+
+                    var nowBuffering = myArrayBuffer.getChannelData(0);
+                    for (var i = 0; i < frameCount; i++) {
+                        nowBuffering[i] = buffer[i];
+                    }                    
+
+                    var source    = g.audioContext.createBufferSource();
+                    source.buffer = myArrayBuffer;
+                    source.connect(g.audioContext.destination);
+                    if (nextTime == 0)
+                        nextTime = g.audioContext.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+
+                    source.start(nextTime);
+
+                    nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
+                }
+                g.totalSamplesDecoded+=samplesDecoded;
+            }
+        }
+   
+        function play(url) {
+
+            var audioStack = [];
+            var nextTime = 0;
+            var leftByte = null
+
+            if(g.audioContext == null)
+                g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            fetch(url).then(function(response) {
+
+                var reader = response.body.getReader();
+
+                function myread(){
+
+                    reader.read().then(({ value, done })=> {
+
+                        if(g.playing == false)return
+
+                        audioStack.push(value.buffer);
+
+                        while ( audioStack.length) {
+
+                            var obuf       = audioStack.shift();
+                            var buffer;
+                           
+                            if((obuf.byteLength & 1) == 0)
+                            {
+                                if(leftByte != null)
+                                {
+                                    var byteArray = new Uint8Array(obuf.byteLength);
+
+                                    byteArray[0] = leftByte[0]
+                                    byteArray.set(obuf.slice(0,-1), 1)
+                                    buffer = new Int16Array(byteArray);
+                                    leftByte= obuf.slice(-1)
+                                }
+                                else
+                                {
+                                    buffer    = new Int16Array(obuf);
+                                }
+                            }
+                            else
+                            {
+                                if(leftByte != null)
+                                {                  
+                                    var byteArray = new Uint8Array(obuf.byteLength+1);
+                                    
+                                    byteArray[0] = leftByte[0]
+                                    byteArray.set(obuf, 1)
+                                    buffer = new Int16Array(byteArray);
+                                    leftByte = null;
+                                }
+                                else
+                                {                                
+                                    buffer = new Int16Array(obuf.slice(0,-1));
+                                    leftByte = obuf.slice(-1);
+                                }                                
+                            }
+                                
+
+                            var frameCount = buffer.length;                        
+                            
+                            var myArrayBuffer = g.audioContext.createBuffer(1, frameCount , 48000);
+                            var nowBuffering = myArrayBuffer.getChannelData(0);
+        
+                            for (var i = 0; i < frameCount; i++) {
+                                nowBuffering[i] = buffer[i] / 32768.0;
+                            }               
+                            
+                            var source    = g.audioContext.createBufferSource();
+                            source.buffer = myArrayBuffer;
+
+                            source.connect(g.audioContext.destination);
+                            if (nextTime == 0)
+                                nextTime = g.audioContext.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+                                
+                            source.start(nextTime);
+                            nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
+                        }
+                        myread();
+                    });
+                }
+                myread();
+            })
+        }
+
+        function stoplaying()
+        {
+            g.playing = false
+        }
+
+        function startPlaying()
+        {
+            if(g.playing == false){
+
+                $('#play').html('stop')
+                g.playing = true
+
+                if($('#format').val() == 'wav')
+                    play('http://localhost:8081/joinRoom?roomID=1&format=wav');
+                else
+                    playOpus('http://localhost:8081/joinRoom?roomID=1');            
+            }
+            else
+            {
+                stoplaying();
+                $('#play').html('play')
+            }
+        }
+
 
     </script>
 
     
 
     <button id="reccord" onclick="startReccording();">reccord</button>
+    <br/>
 
+    <select id="format">
+        <option value="opus">opus</option>
+        <option value="wav">wav</option>
+    </select>
+    <button id="play" onclick="startPlaying();">play</button>
 </body>
 
 

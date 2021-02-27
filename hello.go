@@ -243,7 +243,7 @@ func (r *Room) mixOutputChannel(time time.Time) []clientBuffer {
 
 		if len(myinput.buffers) > 0 {
 
-			var curBuffer = myinput.buffers[0]
+			curBuffer := myinput.buffers[0]
 
 			//iterate through room input samples to fill the buffer
 			for nWriteChan := 0; nWriteChan < nSamples; nWriteChan++ {

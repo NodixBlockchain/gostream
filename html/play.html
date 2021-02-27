@@ -8,11 +8,6 @@
     <script>
 
         var g={playing : false,totalSent:0,audioContext:null}
-        
-        var currentbuffer=new Uint8Array();
-        var context = null
-        var audio
-
         let totalSamplesDecoded = 0;
 
         function playOpus(opusFile){
@@ -103,13 +98,6 @@
 
                         audioStack.push(value.buffer);
 
-                        /*
-                        console.log('values '+value.byteLength)
-                        console.log(value.slice(0,5))
-                        console.log('...')
-                        console.log(value.slice(-5))
-                        */
-
                         while ( audioStack.length) {
 
                             var obuf       = audioStack.shift();
@@ -150,17 +138,7 @@
                             }
                                 
 
-                            var frameCount = buffer.length;
-
-                            /*
-                            console.log('buffer'+buffer.byteLength)
-                            console.log(buffer.slice(0,5))  
-                            console.log('...')
-                            console.log(buffer.slice(-5))   
-                            
-                            console.log('leftByte')
-                            console.log(leftByte)      
-                            */                         
+                            var frameCount = buffer.length;                        
                             
                             var myArrayBuffer = g.audioContext.createBuffer(1, frameCount , 48000);
                             var nowBuffering = myArrayBuffer.getChannelData(0);

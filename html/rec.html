@@ -1,0 +1,104 @@
+<html>
+<head>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" ></script>
+</head>
+<body>
+
+    <script>
+
+        var g={recording : false,totalSent:0,audioContext:null}
+
+        function convertoFloat32ToInt16(buffer) {
+            var l = buffer.length;  //Buffer
+            var buf = new Int16Array(l);
+
+            while (l--) {
+                s = Math.max(-1, Math.min(1, buffer[l]));
+                buf[l] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+          
+            return buf.buffer;
+        }
+
+        function startReccording()
+        {
+            if(g.recording == true)
+            {
+                $('#reccord').html('reccord');
+                stopReccording();
+                return;
+            }
+            g.recording = true;
+            $('#reccord').html('stop');
+
+            g.webSocket = new WebSocket("ws://localhost:8080/joinRoom?roomID=1");
+            g.webSocket.binaryType = 'arraybuffer';
+            g.audioContext = new AudioContext();
+
+            navigator.mediaDevices.getUserMedia ({audio: true, video: false}).then(function(stream) {
+
+                g.stream = stream;
+
+                g.audioInput = g.audioContext.createMediaStreamSource(stream);
+			    g.gainNode = g.audioContext.createGain();
+			    g.recorder = g.audioContext.createScriptProcessor(1024, 1, 1);
+
+    			g.recorder.onaudioprocess = function(e) {
+
+	    			var packets = convertoFloat32ToInt16(e.inputBuffer.getChannelData(0));
+                    g.webSocket.send(packets, { binary: true });
+                    
+                    /*
+                    console.log('packet len '+packets.byteLength +' '+e.inputBuffer.getChannelData(0).length);
+                    console.log('stat');
+                    console.log((g.totalSent) / ((Date.now()-g.startTime)/1000));
+                    */
+
+                    g.totalSent += e.inputBuffer.getChannelData(0).length;
+			    }
+                g.audioInput.connect(g.recorder);
+                //g.audioInput.connect(g.gainNode);
+                //g.gainNode.connect(g.recorder);
+
+                
+                g.startTime=Date.now();
+
+                g.recorder.connect(g.audioContext.destination);
+            });
+        }
+
+
+        function stopReccording()
+        {
+            if (g.audioInput) {
+				g.audioInput.disconnect();
+				g.audioInput = null;
+			}
+			if (g.gainNode) {
+				g.gainNode.disconnect();
+				g.gainNode = null;
+			}
+			if (g.recorder) {
+				g.recorder.disconnect();
+				g.recorder = null;
+			}
+
+            g.stream.getTracks()[0].stop()
+
+
+            g.recording = false;
+            g.webSocket.close();
+        }
+
+        
+
+    </script>
+
+    
+
+    <button id="reccord" onclick="startReccording();">reccord</button>
+
+</body>
+
+
+</html>
