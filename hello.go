@@ -15,7 +15,7 @@ import (
 )
 
 var ciCookieName string = "ci_session"
-var siteURL = "http://localhost"
+var siteURL = "http://172.16.230.1/"
 
 var roomList []*Room
 var roomsMut sync.Mutex
@@ -65,7 +65,7 @@ func grabRoom(roomId int) *Room {
 func sessionCheck(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("access-control-allow-credentials", "true")
-	w.Header().Set("Access-Control-Allow-Origin", "http://localhost/")
+	w.Header().Set("Access-Control-Allow-Origin", siteURL)
 	w.WriteHeader(200)
 
 	roomID, err := strconv.Atoi(r.FormValue("roomID"))
