@@ -62,6 +62,43 @@ func grabRoom(roomId int) *Room {
 	return newRoom
 }
 
+func tokenCheck(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("access-control-allow-credentials", "true")
+	w.Header().Set("Access-Control-Allow-Origin", siteURL)
+	w.WriteHeader(200)
+
+	token := r.FormValue("token")
+
+	client := &http.Client{}
+
+	url := siteURL + "/Membres/crossLogin/" + token
+
+	req, httpErr := http.NewRequest("GET", url, nil)
+	if httpErr != nil {
+		w.Write([]byte(fmt.Sprintf("http.NewRequest failed : %s %v\r\n", url, httpErr)))
+		return
+	}
+
+	resp, httpErr := client.Do(req)
+	if httpErr != nil {
+		w.Write([]byte(fmt.Sprintf("client.Do(req) failed : %s %v\r\n", url, httpErr)))
+		return
+	} else {
+
+		body, httpErr := io.ReadAll(resp.Body)
+
+		if httpErr != nil {
+			w.Write([]byte(fmt.Sprintf("io.ReadAll(resp.Body) failed : %s %v\r\n", url, httpErr)))
+			return
+		} else {
+			w.Write([]byte(fmt.Sprintf("site response %s \r\n %s\r\n", url, string(body))))
+			return
+		}
+	}
+
+}
+
 func sessionCheck(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("access-control-allow-credentials", "true")
@@ -275,7 +312,7 @@ func main() {
 	http.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
 	http.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
 
-	http.HandleFunc("/sessionCheck", sessionCheck)
+	http.HandleFunc("/tokenCheck", tokenCheck)
 	http.HandleFunc("/joinRoom", handleJoinRoom)
 	log.Fatal(http.ListenAndServe(":8081", nil))
 
