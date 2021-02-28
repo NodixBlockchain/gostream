@@ -4,7 +4,6 @@ import "C"
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -14,11 +13,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var ciCookieName string = "ci_session"
-var siteURL = "http://172.16.230.1"
-
 var roomList []*Room
 var roomsMut sync.Mutex
+
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", userid: 0}
 
 func grabRoom(roomId int) *Room {
 
@@ -65,87 +63,19 @@ func grabRoom(roomId int) *Room {
 func tokenCheck(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("access-control-allow-credentials", "true")
-	w.Header().Set("Access-Control-Allow-Origin", siteURL)
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.WriteHeader(200)
 
 	token := r.FormValue("token")
 
-	client := &http.Client{}
-
-	url := siteURL + "/Membres/crossLogin/" + token
-
-	req, httpErr := http.NewRequest("GET", url, nil)
-	if httpErr != nil {
-		w.Write([]byte(fmt.Sprintf("http.NewRequest failed : %s %v\r\n", url, httpErr)))
-		return
-	}
-
-	resp, httpErr := client.Do(req)
-	if httpErr != nil {
-		w.Write([]byte(fmt.Sprintf("client.Do(req) failed : %s %v\r\n", url, httpErr)))
-		return
-	} else {
-
-		body, httpErr := io.ReadAll(resp.Body)
-
-		if httpErr != nil {
-			w.Write([]byte(fmt.Sprintf("io.ReadAll(resp.Body) failed : %s %v\r\n", url, httpErr)))
-			return
-		} else {
-			w.Write([]byte(fmt.Sprintf("site response %s \r\n %s\r\n", url, string(body))))
-			return
-		}
-	}
-
-}
-
-func sessionCheck(w http.ResponseWriter, r *http.Request) {
-
-	w.Header().Set("access-control-allow-credentials", "true")
-	w.Header().Set("Access-Control-Allow-Origin", siteURL)
-	w.WriteHeader(200)
-
-	roomID, err := strconv.Atoi(r.FormValue("roomID"))
-
+	err := mysite.checkCRSF(token)
 	if err != nil {
-		http.Error(w, "bad room id", http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("check CRSF Failed %v \n", err)))
 		return
 	}
 
-	cookie, err := r.Cookie(ciCookieName)
-	if err == nil {
-		w.Write([]byte(fmt.Sprintf("cookie : %s=%s\r\n", cookie.Name, cookie.Value)))
-
-		client := &http.Client{}
-
-		url := siteURL + "/Groupes/ecouteGroupe/" + strconv.Itoa(roomID)
-
-		req, httpErr := http.NewRequest("GET", url, nil)
-		if httpErr != nil {
-			w.Write([]byte(fmt.Sprintf("http.NewRequest failed : %s %v\r\n", url, httpErr)))
-			return
-		}
-		req.AddCookie(cookie)
-
-		resp, httpErr := client.Do(req)
-		if httpErr != nil {
-			w.Write([]byte(fmt.Sprintf("client.Do(req) failed : %s %v\r\n", url, httpErr)))
-			return
-		} else {
-
-			body, httpErr := io.ReadAll(resp.Body)
-
-			if httpErr != nil {
-				w.Write([]byte(fmt.Sprintf("io.ReadAll(resp.Body) failed : %s %v\r\n", url, httpErr)))
-				return
-			} else {
-				w.Write([]byte(fmt.Sprintf("site response %s \r\n %s\r\n", url, string(body))))
-				return
-			}
-		}
-	} else {
-		w.Write([]byte(fmt.Sprintf("no cookie %s\r\n", ciCookieName)))
-	}
+	w.Write([]byte("check CRSF success"))
+	w.Write([]byte(strconv.Itoa(mysite.userid)))
 }
 
 func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
@@ -164,35 +94,6 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 
 	if len(format) <= 0 {
 		format = "opus"
-	}
-
-	cookie, err := r.Cookie(ciCookieName)
-	if err == nil {
-		log.Printf("cookie : %s=%s\r\n", cookie.Name, cookie.Value)
-
-		client := &http.Client{}
-
-		url := siteURL + "/Groupes/ecouteGroupe/" + strconv.Itoa(roomID)
-
-		req, httpErr := http.NewRequest("GET", url, nil)
-		if httpErr != nil {
-			log.Printf("http.NewRequest failed : %s %v\r\n", url, httpErr)
-		}
-		req.AddCookie(cookie)
-
-		resp, httpErr := client.Do(req)
-		if httpErr != nil {
-			log.Printf("client.Do(req) failed : %s %v\r\n", url, httpErr)
-		} else {
-
-			body, httpErr := io.ReadAll(resp.Body)
-
-			if httpErr != nil {
-				log.Printf("io.ReadAll(resp.Body) failed : %s %v\r\n", url, httpErr)
-			} else {
-				log.Printf("site response %s \r\n %s\r\n", url, string(body))
-			}
-		}
 	}
 
 	room := grabRoom(roomID)
