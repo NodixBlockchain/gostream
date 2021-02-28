@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -185,7 +184,7 @@ func (r *Room) mixOutputChannel(time time.Time) []clientBuffer {
 	//create output buffers for each clients
 	clientBuffers := r.getClientBuffers()
 
-	log.Printf("out %d \n", nSamples)
+	//log.Printf("out %d \n", nSamples)
 
 	//iterate through room inputs
 	for _, myinput := range r.inputs {
