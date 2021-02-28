@@ -62,10 +62,55 @@ func grabRoom(roomId int) *Room {
 	return newRoom
 }
 
+func sessionCheck(w http.ResponseWriter, r *http.Request) {
+
+	roomID, err := strconv.Atoi(r.FormValue("roomID"))
+
+	if err != nil {
+		http.Error(w, "bad room id", http.StatusInternalServerError)
+		return
+	}
+
+	cookie, err := r.Cookie(ciCookieName)
+	if err == nil {
+		w.Write([]byte(fmt.Sprintf("cookie : %s=%s\r\n", cookie.Name, cookie.Value)))
+
+		client := &http.Client{}
+
+		url := siteURL + "/Groupes/ecouteGroupe/" + strconv.Itoa(roomID)
+
+		req, httpErr := http.NewRequest("GET", url, nil)
+		if httpErr != nil {
+			w.Write([]byte(fmt.Sprintf("http.NewRequest failed : %s %v\r\n", url, httpErr)))
+			return
+		}
+		req.AddCookie(cookie)
+
+		resp, httpErr := client.Do(req)
+		if httpErr != nil {
+			w.Write([]byte(fmt.Sprintf("client.Do(req) failed : %s %v\r\n", url, httpErr)))
+			return
+		} else {
+
+			body, httpErr := io.ReadAll(resp.Body)
+
+			if httpErr != nil {
+				w.Write([]byte(fmt.Sprintf("io.ReadAll(resp.Body) failed : %s %v\r\n", url, httpErr)))
+				return
+			} else {
+				w.Write([]byte(fmt.Sprintf("site response %s \r\n %s\r\n", url, string(body))))
+				return
+			}
+		}
+	} else {
+		w.Write([]byte(fmt.Sprintf("no cookie %s\r\n", ciCookieName)))
+	}
+}
+
 func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	var err error
-	var roomID int
 	var format string
+	var roomID int
 
 	roomID, err = strconv.Atoi(r.FormValue("roomID"))
 
@@ -225,6 +270,8 @@ func main() {
 
 	http.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
 	http.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
+
+	http.HandleFunc("/sessionCheck", sessionCheck)
 	http.HandleFunc("/joinRoom", handleJoinRoom)
 	log.Fatal(http.ListenAndServe(":8081", nil))
 
