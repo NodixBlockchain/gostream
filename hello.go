@@ -15,7 +15,7 @@ import (
 )
 
 var ciCookieName string = "ci_session"
-var siteURL = "http://172.16.230.1/"
+var siteURL = "http://172.16.230.1"
 
 var roomList []*Room
 var roomsMut sync.Mutex
