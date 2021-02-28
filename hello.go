@@ -64,7 +64,8 @@ func grabRoom(roomId int) *Room {
 
 func sessionCheck(w http.ResponseWriter, r *http.Request) {
 
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("access-control-allow-credentials", "true")
+	w.Header().Set("Access-Control-Allow-Origin", "http://localhost/")
 	w.WriteHeader(200)
 
 	roomID, err := strconv.Atoi(r.FormValue("roomID"))
