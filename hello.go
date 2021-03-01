@@ -68,7 +68,12 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 
-	log.Println("token check request")
+	if r.Method != "GET" {
+		log.Println("token check headers sent ")
+		return
+	}
+
+	log.Println("token check request ")
 
 	//token := r.FormValue("token")
 	token := r.Header.Get("CSRFtoken")
@@ -76,7 +81,7 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 	err := mysite.checkCRSF(token)
 	if err != nil {
 		w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
-		log.Println("token check error ", token)
+		log.Printf("token %s check error %v ", token, err)
 		return
 	}
 
@@ -88,6 +93,14 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var format string
 	var roomID int
+
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
+
+	if r.Method != "GET" {
+		w.WriteHeader(200)
+		return
+	}
 
 	roomID, err = strconv.Atoi(r.FormValue("roomID"))
 
@@ -107,12 +120,10 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		token = r.FormValue("token")
 	}
 
-	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
-	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
-
 	if mysite.enable {
 		err = mysite.newListener(roomID, token)
 		if err != nil {
+			log.Printf("cannot create new Listener %v", err)
 			http.Error(w, fmt.Sprintf("cannot create new Listener %v", err), http.StatusForbidden)
 			return
 		}
@@ -178,6 +189,8 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		err = mysite.newInput(roomID, token)
 		if err != nil {
+			log.Printf("mysite.newInput(%d,%s) API error %v", roomID, token, err)
+
 			http.Error(w, fmt.Sprintf("mysite.newInput(%d,%s) API error %v", roomID, token, err), http.StatusForbidden)
 			return
 		}
@@ -235,21 +248,11 @@ func main() {
 
 	fmt.Println("goStream starting !")
 
-	/*
-		http.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
-		http.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
-
-		go func() {
-			log.Fatal(http.ListenAndServe(":80", nil))
-		}()
-	*/
-
 	router := http.NewServeMux()
 	router.Handle("/upRoom", wsHandler{}) //handels websocket connections
 	router.HandleFunc("/joinRoom", handleJoinRoom)
 
 	router.HandleFunc("/tokenCheck", tokenCheck)
-
 	router.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
 	router.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
 
