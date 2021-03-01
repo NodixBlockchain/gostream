@@ -9,6 +9,32 @@
     <script>
         var roomID=1
         var token= Math.floor(Math.random() * 1000000)
+
+        /*
+        var url = 'http://localhost/Membres/newCRSF';
+        console.log('url 1 :' + url)
+
+        $.getJSON(url, function(result)  { 
+
+          console.log('token result : ')
+          console.log(result)
+          globalAudio.token = result.token;
+
+          $('#reccord').prop("disabled", false)
+          $('#play').prop("disabled", false)
+
+          $.ajax({
+            url: 'http://localhost:8080/tokenCheck',
+            type: 'GET',
+            dataType: "text",
+            headers: { 'CSRFToken': globalAudio.token},
+            success: function (result) { console.log('CSRF response'); console.log(result); },
+            error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
+        });
+    }).fail( function( jqxhr, textStatus, error ) { console.log( "error getting token " + textStatus ); });
+    */
+
+
     </script>
 
     <button id="reccord" onclick="startReccording(roomID,token);">reccord</button>
