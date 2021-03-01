@@ -300,44 +300,6 @@ func (e *OggOpusEncoder) writeHeader() error {
 			return fmt.Errorf("error initializing  opus encoder")
 		}
 
-		/*
-			e.opusHDR.version = 1
-			e.opusHDR.channel_count = e.NumChans
-			e.opusHDR.pre_skip = 0
-			e.opusHDR.input_sample_rate = uint32(e.SampleRate)
-			e.opusHDR.output_gain = 0
-			e.opusHDR.mapping_family = 0
-			e.opusHDR.stream_count = 1
-			e.opusHDR.coupled_count = 0
-			e.opusHDR.mapping[0] = 0
-
-			packetBuffer = []byte("OpusHead")
-			packetBuffer = append(packetBuffer, byte(e.opusHDR.version))
-			packetBuffer = append(packetBuffer, byte(e.opusHDR.channel_count))
-			packetBuffer = e.PutUint16(packetBuffer, uint16(e.opusHDR.pre_skip))
-			packetBuffer = e.PutUint32(packetBuffer, uint32(e.opusHDR.input_sample_rate))
-			packetBuffer = e.PutInt16(packetBuffer, int16(e.opusHDR.output_gain))
-			packetBuffer = append(packetBuffer, byte(e.opusHDR.mapping_family))
-
-			if e.opusHDR.mapping_family != 0 {
-				packetBuffer = append(packetBuffer, byte(e.opusHDR.stream_count))
-				for i := 0; i < e.NumChans; i++ {
-					packetBuffer = append(packetBuffer, e.opusHDR.mapping[i])
-				}
-
-			}
-			//packetBuffer = append(packetBuffer, e.opusHDR.mapping[:]...)
-
-			//log.Printf("packetBuffer : %x", packetBuffer)
-
-			header.Packet = packetBuffer
-			header.Bytes = len(packetBuffer)
-			header.BOS = 1
-			header.EOS = 0
-			header.Granulepos = 0
-			header.Packetno = 0
-		*/
-
 		ve := vorbis.OpusHeaderout("goStream", e.SampleRate, e.NumChans, &header, &comments)
 		if ve != 0 {
 			return fmt.Errorf("unable to initialize ogg headers error %d", ve)
@@ -358,22 +320,6 @@ func (e *OggOpusEncoder) writeHeader() error {
 			e.w.Write(og.Header)
 			e.w.Write(og.Body)
 		}
-
-		/*
-			encoderName := "goStream"
-
-			packetBuffer = []byte("OpusTags")
-			packetBuffer = e.PutUint32(packetBuffer, uint32(len(encoderName)))
-			packetBuffer = append(packetBuffer, []byte(encoderName)...)
-			packetBuffer = e.PutUint32(packetBuffer, uint32(0))
-
-			comments.Packet = packetBuffer
-			comments.Bytes = len(packetBuffer)
-			comments.BOS = 0
-			comments.EOS = 0
-			comments.Granulepos = 0
-			comments.Packetno = 1
-		*/
 
 		ve = vorbis.MyOggStreamPacketin(&e.os, &comments)
 

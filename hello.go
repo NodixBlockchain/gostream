@@ -66,7 +66,8 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.WriteHeader(200)
 
-	token := r.FormValue("token")
+	//token := r.FormValue("token")
+	token := r.Header.Get("CSRFtoken")
 
 	err := mysite.checkCRSF(token)
 	if err != nil {
