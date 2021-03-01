@@ -123,8 +123,10 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	if mysite.enable {
 		err = mysite.newListener(roomID, token)
 		if err != nil {
-			log.Printf("cannot create new Listener %v", err)
-			http.Error(w, fmt.Sprintf("cannot create new Listener %v", err), http.StatusForbidden)
+			log.Printf("API mysite.newListener(%d,%s) \r\n", roomID, token)
+			log.Println("error ", err)
+
+			http.Error(w, "mysite.newListener API error", http.StatusForbidden)
 			return
 		}
 	}
@@ -189,9 +191,10 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		err = mysite.newInput(roomID, token)
 		if err != nil {
-			log.Printf("mysite.newInput(%d,%s) API error %v", roomID, token, err)
+			log.Printf("API mysite.newInput(%d,%s) \r\n", roomID, token)
+			log.Println("error : ", err)
 
-			http.Error(w, fmt.Sprintf("mysite.newInput(%d,%s) API error %v", roomID, token, err), http.StatusForbidden)
+			http.Error(w, "mysite.newInput API error", http.StatusForbidden)
 			return
 		}
 	}
