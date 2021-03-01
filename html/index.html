@@ -12,13 +12,12 @@
     </script>
 
     <button id="reccord" onclick="startReccording(roomID,token);">reccord</button>
-    <br/>
 
+    <button id="play" onclick=" if($('#format').val() == 'wav') play(roomID,token); else playOpus(roomID,token);">play</button>
     <select id="format">
         <option value="opus">opus</option>
         <option value="wav">wav</option>
-    </select>
-    <button id="play" onclick=" if($('#format').val() == 'wav') play(roomID,token); else playOpus(roomID,token);     ">play</button>
+    </select>    
 </body>
 
 

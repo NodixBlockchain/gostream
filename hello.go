@@ -64,6 +64,8 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("access-control-allow-credentials", "true")
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
+
 	w.WriteHeader(200)
 
 	log.Println("token check request")
@@ -230,12 +232,12 @@ func main() {
 
 	router := http.NewServeMux()
 	router.Handle("/upRoom", wsHandler{}) //handels websocket connections
+	router.HandleFunc("/joinRoom", handleJoinRoom)
+
+	router.HandleFunc("/tokenCheck", tokenCheck)
 
 	router.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
 	router.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
-
-	router.HandleFunc("/tokenCheck", tokenCheck)
-	router.HandleFunc("/joinRoom", handleJoinRoom)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 

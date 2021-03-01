@@ -1,5 +1,8 @@
 
-        var globalAudio = {playing : false, downstreamURL:'http://localhost:8080',totalSamplesDecoded :0,recording : false,totalSent:0, upstreamURL:'ws://localhost:8080',audioContext:null}
+        var globalAudio = { playing : false, downstreamURL:'http://localhost:8080/joinRoom',totalSamplesDecoded :0,
+                            recording : false, upstreamURL:'ws://localhost:8080/upRoom',totalSent:0,
+                            token:null,
+                            audioContext:null}
                 
 
         function convertoFloat32ToInt16(buffer) {
@@ -25,7 +28,7 @@
             globalAudio.recording = true;
             $('#reccord').html('stop');
 
-            globalAudio.webSocket = new WebSocket(globalAudio.upstreamURL + "/upRoom?token=" + token + "&roomID=" + roomID);
+            globalAudio.webSocket = new WebSocket(globalAudio.upstreamURL + "?token=" + token + "&roomID=" + roomID);
             globalAudio.webSocket.binaryType = 'arraybuffer';
 
             if(globalAudio.audioContext == null)
@@ -108,7 +111,7 @@
             if(globalAudio.audioContext == null)
                 globalAudio.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-            var opusURL = globalAudio.downstreamURL + "/joinRoom?roomID=" + roomID; // + "&token=" + token;
+            var opusURL = globalAudio.downstreamURL + "?roomID=" + roomID; // + "&token=" + token;
           
             // Fetch a file and decode it.
             fetch(opusURL, {headers : {'CSRFToken': token}})
@@ -205,7 +208,7 @@
             if(globalAudio.audioContext == null)
                 globalAudio.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-            var url= globalAudio.downstreamURL + "/joinRoom?format=wav&roomID=" + roomID; // + "&token=" + token
+            var url= globalAudio.downstreamURL + "?format=wav&roomID=" + roomID; // + "&token=" + token
 
             fetch(url, {headers : {'CSRFToken': token}}).then(function(response) {
 
