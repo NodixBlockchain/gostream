@@ -66,16 +66,18 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.WriteHeader(200)
 
+	log.Println("token check request")
+
 	//token := r.FormValue("token")
 	token := r.Header.Get("CSRFtoken")
 
 	err := mysite.checkCRSF(token)
 	if err != nil {
-		w.Write([]byte(fmt.Sprintf("check CRSF Failed %v \n", err)))
+		w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
 		return
 	}
 
-	w.Write([]byte("check CRSF success"))
+	w.Write([]byte("check CRSF success\r\n"))
 
 }
 
