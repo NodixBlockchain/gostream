@@ -16,7 +16,7 @@ import (
 var roomList []*Room
 var roomsMut sync.Mutex
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1"}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
 func grabRoom(roomId int) *Room {
 
@@ -106,13 +106,13 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		token = r.FormValue("token")
 	}
 
-	/*
+	if mysite.enable {
 		err = mysite.newListener(roomID, token)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("cannot create new Listener %v", err), http.StatusInternalServerError)
 			return
 		}
-	*/
+	}
 
 	room := grabRoom(roomID)
 
@@ -171,13 +171,15 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := r.FormValue("token")
-	/*
+
+	if mysite.enable {
+
 		err = mysite.newInput(roomID, token)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("mysite.newInput(%d,%s) API error %v", roomID, token, err), http.StatusInternalServerError)
 			return
 		}
-	*/
+	}
 
 	room := grabRoom(roomID)
 

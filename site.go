@@ -10,6 +10,7 @@ import (
 type site struct {
 	siteURL    string
 	siteOrigin string
+	enable     bool
 }
 
 func (mysite *site) checkCRSF(token string) error {
