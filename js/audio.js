@@ -1,5 +1,5 @@
 
-        var g={playing : false, downstreamURL:'http://localhost:8081',totalSamplesDecoded :0,recording : false,totalSent:0, upstreamURL:'ws://localhost:8080',audioContext:null}
+        var globalAudio = {playing : false, downstreamURL:'http://localhost:8080',totalSamplesDecoded :0,recording : false,totalSent:0, upstreamURL:'ws://localhost:8080',audioContext:null}
                 
 
         function convertoFloat32ToInt16(buffer) {
@@ -14,95 +14,106 @@
             return buf.buffer;
         }
 
-        function startReccording(roomID)
+        function startReccording(roomID, token)
         {
-            if(g.recording == true)
+            if(globalAudio.recording == true)
             {
                 $('#reccord').html('reccord');
                 stopReccording();
                 return;
             }
-            g.recording = true;
+            globalAudio.recording = true;
             $('#reccord').html('stop');
 
-            g.webSocket = new WebSocket(g.upstreamURL + "/joinRoom?roomID="+roomID);
-            g.webSocket.binaryType = 'arraybuffer';
+            globalAudio.webSocket = new WebSocket(globalAudio.upstreamURL + "/upRoom?token=" + token + "&roomID=" + roomID);
+            globalAudio.webSocket.binaryType = 'arraybuffer';
 
-            if(g.audioContext == null)
-                g.audioContext = new AudioContext();
+            if(globalAudio.audioContext == null)
+                globalAudio.audioContext = new AudioContext();
 
             navigator.mediaDevices.getUserMedia ({audio: true, video: false}).then(function(stream) {
 
-                g.stream = stream;
+                globalAudio.stream = stream;
 
-                g.audioInput = g.audioContext.createMediaStreamSource(stream);
-			    g.gainNode = g.audioContext.createGain();
-			    g.recorder = g.audioContext.createScriptProcessor(1024, 1, 1);
+                globalAudio.audioInput = globalAudio.audioContext.createMediaStreamSource(stream);
+			    globalAudio.gainNode = globalAudio.audioContext.createGain();
+			    globalAudio.recorder = globalAudio.audioContext.createScriptProcessor(1024, 1, 1);
 
-    			g.recorder.onaudioprocess = function(e) {
+    			globalAudio.recorder.onaudioprocess = function(e) {
 
 	    			var packets = convertoFloat32ToInt16(e.inputBuffer.getChannelData(0));
-                    g.webSocket.send(packets, { binary: true });
+                    globalAudio.webSocket.send(packets, { binary: true });
                     
                     /*
                     console.log('packet len '+packets.byteLength +' '+e.inputBuffer.getChannelData(0).length);
                     console.log('stat');
-                    console.log((g.totalSent) / ((Date.now()-g.startTime)/1000));
+                    console.log((globalAudio.totalSent) / ((Date.now()-globalAudio.startTime)/1000));
                     */
 
-                    g.totalSent += e.inputBuffer.getChannelData(0).length;
+                    globalAudio.totalSent += e.inputBuffer.getChannelData(0).length;
 			    }
-                g.audioInput.connect(g.recorder);
-                //g.audioInput.connect(g.gainNode);
-                //g.gainNode.connect(g.recorder);
+                globalAudio.audioInput.connect(globalAudio.recorder);
+                //globalAudio.audioInput.connect(globalAudio.gainNode);
+                //globalAudio.gainNode.connect(globalAudio.recorder);
 
                 
-                g.startTime=Date.now();
+                globalAudio.startTime=Date.now();
 
-                g.recorder.connect(g.audioContext.destination);
+                globalAudio.recorder.connect(globalAudio.audioContext.destination);
             });
         }
 
 
         function stopReccording()
         {
-            if (g.audioInput) {
-				g.audioInput.disconnect();
-				g.audioInput = null;
+            if (globalAudio.audioInput) {
+				globalAudio.audioInput.disconnect();
+				globalAudio.audioInput = null;
 			}
-			if (g.gainNode) {
-				g.gainNode.disconnect();
-				g.gainNode = null;
+			if (globalAudio.gainNode) {
+				globalAudio.gainNode.disconnect();
+				globalAudio.gainNode = null;
 			}
-			if (g.recorder) {
-				g.recorder.disconnect();
-				g.recorder = null;
+			if (globalAudio.recorder) {
+				globalAudio.recorder.disconnect();
+				globalAudio.recorder = null;
 			}
 
-            g.stream.getTracks()[0].stop()
+            globalAudio.stream.getTracks()[0].stop()
 
 
-            g.recording = false;
-            g.webSocket.close();
+            globalAudio.recording = false;
+            globalAudio.webSocket.close();
         }
 
         
     
 
-        function playOpus(roomID){
+        function playOpus(roomID, token){
 
             var audioStack = [];
             var nextTime = 0;
 
-            if(g.audioContext == null)
-                g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            if(globalAudio.playing == false){
+                $('#play').html('stop')
+                globalAudio.playing = true                           
+            }
+            else
+            {
+                stoplaying();
+                $('#play').html('play')
+                return
+            }                      
 
-            var opusURL = g.downstreamURL + "/joinRoom?roomID=" + roomID;
+            if(globalAudio.audioContext == null)
+                globalAudio.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
+            var opusURL = globalAudio.downstreamURL + "/joinRoom?roomID=" + roomID; // + "&token=" + token;
+          
             // Fetch a file and decode it.
-            fetch(opusURL)
+            fetch(opusURL, {headers : {'CSRFToken': token}})
             .then(decodeOpusResponse)
-            .then(_ => console.log('decoded '+g.totalSamplesDecoded+' samples.'))
+            .then(_ => console.log('decoded '+globalAudio.totalSamplesDecoded+' samples.'))
             .catch(console.error);
 
             // decode Fetch response
@@ -134,7 +145,7 @@
                 return reader.read().then(async function evalChunk({done, value}) 
                 {
                     if (done) return;
-                    if(g.playing == false)return;
+                    if(globalAudio.playing == false)return;
 
                     await decoder.ready;
                     decoder.decode(value);
@@ -152,39 +163,51 @@
                     var buffer    = audioStack.shift();
                     var frameCount =  buffer.length;
 
-                    var myArrayBuffer = g.audioContext.createBuffer(1,frameCount, sampleRate);
+                    var myArrayBuffer = globalAudio.audioContext.createBuffer(1,frameCount, sampleRate);
 
                     var nowBuffering = myArrayBuffer.getChannelData(0);
                     for (var i = 0; i < frameCount; i++) {
                         nowBuffering[i] = buffer[i];
                     }                    
 
-                    var source    = g.audioContext.createBufferSource();
+                    var source    = globalAudio.audioContext.createBufferSource();
                     source.buffer = myArrayBuffer;
-                    source.connect(g.audioContext.destination);
+                    source.connect(globalAudio.audioContext.destination);
                     if (nextTime == 0)
-                        nextTime = g.audioContext.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+                        nextTime = globalAudio.audioContext.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
 
                     source.start(nextTime);
 
                     nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
                 }
-                g.totalSamplesDecoded+=samplesDecoded;
+                globalAudio.totalSamplesDecoded+=samplesDecoded;
             }
         }
    
-        function play(roomID) {
+        function play(roomID, token) {
 
             var audioStack = [];
             var nextTime = 0;
             var leftByte = null
 
-            if(g.audioContext == null)
-                g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+            if(globalAudio.playing == false){
+                $('#play').html('stop')
+                globalAudio.playing = true                           
+            }
+            else
+            {
+                stoplaying();
+                $('#play').html('play')
+                return
+            }            
 
-            var url= g.downstreamURL + "/joinRoom?format=wav&roomID=" + roomID;
+            if(globalAudio.audioContext == null)
+                globalAudio.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-            fetch(url).then(function(response) {
+            var url= globalAudio.downstreamURL + "/joinRoom?format=wav&roomID=" + roomID; // + "&token=" + token
+
+            fetch(url, {headers : {'CSRFToken': token}}).then(function(response) {
 
                 console.log(response)
 
@@ -208,7 +231,7 @@
 
                     reader.read().then(({ value, done })=> {
 
-                        if(g.playing == false)return
+                        if(globalAudio.playing == false)return
 
                         audioStack.push(value.buffer);
 
@@ -254,19 +277,19 @@
 
                             var frameCount = buffer.length;                        
                             
-                            var myArrayBuffer = g.audioContext.createBuffer(1, frameCount , 48000);
+                            var myArrayBuffer = globalAudio.audioContext.createBuffer(1, frameCount , 48000);
                             var nowBuffering = myArrayBuffer.getChannelData(0);
         
                             for (var i = 0; i < frameCount; i++) {
                                 nowBuffering[i] = buffer[i] / 32768.0;
                             }               
                             
-                            var source    = g.audioContext.createBufferSource();
+                            var source    = globalAudio.audioContext.createBufferSource();
                             source.buffer = myArrayBuffer;
 
-                            source.connect(g.audioContext.destination);
+                            source.connect(globalAudio.audioContext.destination);
                             if (nextTime == 0)
-                                nextTime = g.audioContext.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+                                nextTime = globalAudio.audioContext.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
                                 
                             source.start(nextTime);
                             nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
@@ -280,5 +303,5 @@
 
         function stoplaying()
         {
-            g.playing = false
+            globalAudio.playing = false
         }

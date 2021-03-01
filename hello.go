@@ -99,7 +99,10 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		format = "opus"
 	}
 
-	token := r.FormValue("token")
+	token := r.Header.Get("CSRFtoken")
+	if token == "" {
+		token = r.FormValue("token")
+	}
 
 	/*
 		err = mysite.newListener(roomID, token)
@@ -128,7 +131,7 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	newClientId := room.addClient(w, token)
 	client := room.getClient(newClientId)
 
-	log.Printf("new client : %d in room [%d] %s ", client.id, room.id, room.name)
+	log.Printf("new client : %d in room [%d] %s using token '%s'", client.id, room.id, room.name, token)
 
 	defer room.removeClient(newClientId)
 
@@ -180,7 +183,7 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("new audio input in %s \n", room.name)
+	log.Printf("new audio input in %s using token '%s'\n", room.name, token)
 
 	myInputId = room.addInput(48000, 1, token)
 	myinput := room.getInput(myInputId)
@@ -226,17 +229,14 @@ func main() {
 	fmt.Println("goStream starting !")
 
 	router := http.NewServeMux()
-	router.Handle("/joinRoom", wsHandler{}) //handels websocket connections
+	router.Handle("/upRoom", wsHandler{}) //handels websocket connections
 
-	go func() {
-		log.Fatal(http.ListenAndServe(":8080", router))
-	}()
+	router.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
+	router.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
 
-	http.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
-	http.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
+	router.HandleFunc("/tokenCheck", tokenCheck)
+	router.HandleFunc("/joinRoom", handleJoinRoom)
 
-	http.HandleFunc("/tokenCheck", tokenCheck)
-	http.HandleFunc("/joinRoom", handleJoinRoom)
-	log.Fatal(http.ListenAndServe(":8081", nil))
+	log.Fatal(http.ListenAndServe(":8080", router))
 
 }

@@ -1,63 +1,24 @@
 <html>
 <head>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" ></script>
-    <script src="http://localhost:8081/js/opus-stream-decoder.js"></script>
-    <script src="http://localhost:8081/js/audio.js"></script>
+    <script src="http://localhost:8080/js/opus-stream-decoder.js"></script>
+    <script src="http://localhost:8080/js/audio.js"></script>
 </head>
 <body>
 
     <script>
-
         var roomID=1
-
-        function getCookie(cname) {
-            var name = cname + "=";
-            var ca = document.cookie.split(';');
-            for(var i = 0; i < ca.length; i++) {
-                var c = ca[i];
-                while (c.charAt(0) == ' ') {
-                c = c.substring(1);
-                }
-                if (c.indexOf(name) == 0) {
-                return c.substring(name.length, c.length);
-                }
-            }
-            return "";
-        }
-
-
-        function startPlaying(roomID)
-        {
-            if(g.playing == false){
-
-                
-                $('#play').html('stop')
-                g.playing = true
-
-                if($('#format').val() == 'wav')
-                    play(roomID);
-                else
-                    playOpus(roomID);            
-            }
-            else
-            {
-                stoplaying();
-                $('#play').html('play')
-            }
-        }
-
+        var token= Math.random()
     </script>
 
-    
-
-    <button id="reccord" onclick="startReccording(roomID);">reccord</button>
+    <button id="reccord" onclick="startReccording(roomID,token);">reccord</button>
     <br/>
 
     <select id="format">
         <option value="opus">opus</option>
         <option value="wav">wav</option>
     </select>
-    <button id="play" onclick="startPlaying(roomID);">play</button>
+    <button id="play" onclick=" if($('#format').val() == 'wav') play(roomID,token); else playOpus(roomID,token);     ">play</button>
 </body>
 
 
