@@ -221,25 +221,6 @@ func (e *OggVorbisEncoder) writeBuffer(newBuffer []int16) error {
 	return nil
 }
 
-type opusOGGHeader struct {
-	version int // The Ogg Opus format version, in the range 0...255. More...
-
-	channel_count int //The number of channels, in the range 1...255. More...
-
-	pre_skip uint //The number of samples that should be discarded from the beginning of the stream. More...
-
-	input_sample_rate uint32 //The sampling rate of the original input. More...
-	output_gain       int    //The gain to apply to the decoded output, in dB, as a Q8 value in the range -32768...32767. More...
-
-	mapping_family int //The channel mapping family, in the range 0...255. More...
-
-	stream_count int //The number of Opus streams in each Ogg packet, in the range 1...255. More...
-
-	coupled_count int //The number of coupled Opus streams in each Ogg packet, in the range 0...127. More...
-
-	mapping [255]byte
-}
-
 type OggOpusEncoder struct {
 	w           http.ResponseWriter
 	SampleRate  int
@@ -253,7 +234,6 @@ type OggOpusEncoder struct {
 
 	useOgg   bool
 	Packetno vorbis.OggInt64
-	opusHDR  opusOGGHeader
 	os       vorbis.OggStreamState
 	vc       vorbis.Comment
 }
@@ -313,45 +293,57 @@ func (e *OggOpusEncoder) writeHeader() error {
 	if e.useOgg {
 		var og vorbis.OggPage
 		var header, comments vorbis.OggPacket
-		var packetBuffer []byte
+		//var packetBuffer []byte
 
-		e.opusHDR.version = 1
-		e.opusHDR.channel_count = e.NumChans
-		e.opusHDR.pre_skip = 0
-		e.opusHDR.input_sample_rate = uint32(e.SampleRate)
-		e.opusHDR.output_gain = 0
-		e.opusHDR.mapping_family = 0
-		e.opusHDR.stream_count = 1
-		e.opusHDR.coupled_count = 0
-		e.opusHDR.mapping[0] = 0
-
-		packetBuffer = []byte("OpusHead")
-		packetBuffer = append(packetBuffer, byte(e.opusHDR.version))
-		packetBuffer = append(packetBuffer, byte(e.opusHDR.channel_count))
-		packetBuffer = e.PutUint16(packetBuffer, uint16(e.opusHDR.pre_skip))
-		packetBuffer = e.PutUint32(packetBuffer, uint32(e.opusHDR.input_sample_rate))
-		packetBuffer = e.PutInt16(packetBuffer, int16(e.opusHDR.output_gain))
-		packetBuffer = append(packetBuffer, byte(e.opusHDR.mapping_family))
-
-		if e.opusHDR.mapping_family != 0 {
-			packetBuffer = append(packetBuffer, byte(e.opusHDR.stream_count))
-			for i := 0; i < e.NumChans; i++ {
-				packetBuffer = append(packetBuffer, e.opusHDR.mapping[i])
-			}
-
+		e.opusEnc, err = opus.NewEncoder(e.SampleRate, e.NumChans, opus.AppVoIP)
+		if err != nil {
+			return fmt.Errorf("error initializing  opus encoder")
 		}
-		//packetBuffer = append(packetBuffer, e.opusHDR.mapping[:]...)
 
-		//log.Printf("packetBuffer : %x", packetBuffer)
+		/*
+			e.opusHDR.version = 1
+			e.opusHDR.channel_count = e.NumChans
+			e.opusHDR.pre_skip = 0
+			e.opusHDR.input_sample_rate = uint32(e.SampleRate)
+			e.opusHDR.output_gain = 0
+			e.opusHDR.mapping_family = 0
+			e.opusHDR.stream_count = 1
+			e.opusHDR.coupled_count = 0
+			e.opusHDR.mapping[0] = 0
 
-		header.Packet = packetBuffer
-		header.Bytes = len(packetBuffer)
-		header.BOS = 1
-		header.EOS = 0
-		header.Granulepos = 0
-		header.Packetno = 0
+			packetBuffer = []byte("OpusHead")
+			packetBuffer = append(packetBuffer, byte(e.opusHDR.version))
+			packetBuffer = append(packetBuffer, byte(e.opusHDR.channel_count))
+			packetBuffer = e.PutUint16(packetBuffer, uint16(e.opusHDR.pre_skip))
+			packetBuffer = e.PutUint32(packetBuffer, uint32(e.opusHDR.input_sample_rate))
+			packetBuffer = e.PutInt16(packetBuffer, int16(e.opusHDR.output_gain))
+			packetBuffer = append(packetBuffer, byte(e.opusHDR.mapping_family))
 
-		ve := vorbis.OggStreamInit(&e.os, 1)
+			if e.opusHDR.mapping_family != 0 {
+				packetBuffer = append(packetBuffer, byte(e.opusHDR.stream_count))
+				for i := 0; i < e.NumChans; i++ {
+					packetBuffer = append(packetBuffer, e.opusHDR.mapping[i])
+				}
+
+			}
+			//packetBuffer = append(packetBuffer, e.opusHDR.mapping[:]...)
+
+			//log.Printf("packetBuffer : %x", packetBuffer)
+
+			header.Packet = packetBuffer
+			header.Bytes = len(packetBuffer)
+			header.BOS = 1
+			header.EOS = 0
+			header.Granulepos = 0
+			header.Packetno = 0
+		*/
+
+		ve := vorbis.OpusHeaderout("goStream", e.SampleRate, e.NumChans, &header, &comments)
+		if ve != 0 {
+			return fmt.Errorf("unable to initialize ogg headers ")
+		}
+
+		ve = vorbis.OggStreamInit(&e.os, 1)
 
 		if ve != 0 {
 			return fmt.Errorf("unable to initialize ogg stream ")
@@ -367,19 +359,21 @@ func (e *OggOpusEncoder) writeHeader() error {
 			e.w.Write(og.Body)
 		}
 
-		encoderName := "goStream"
+		/*
+			encoderName := "goStream"
 
-		packetBuffer = []byte("OpusTags")
-		packetBuffer = e.PutUint32(packetBuffer, uint32(len(encoderName)))
-		packetBuffer = append(packetBuffer, []byte(encoderName)...)
-		packetBuffer = e.PutUint32(packetBuffer, uint32(0))
+			packetBuffer = []byte("OpusTags")
+			packetBuffer = e.PutUint32(packetBuffer, uint32(len(encoderName)))
+			packetBuffer = append(packetBuffer, []byte(encoderName)...)
+			packetBuffer = e.PutUint32(packetBuffer, uint32(0))
 
-		comments.Packet = packetBuffer
-		comments.Bytes = len(packetBuffer)
-		comments.BOS = 0
-		comments.EOS = 0
-		comments.Granulepos = 0
-		comments.Packetno = 1
+			comments.Packet = packetBuffer
+			comments.Bytes = len(packetBuffer)
+			comments.BOS = 0
+			comments.EOS = 0
+			comments.Granulepos = 0
+			comments.Packetno = 1
+		*/
 
 		ve = vorbis.MyOggStreamPacketin(&e.os, &comments)
 
@@ -394,10 +388,6 @@ func (e *OggOpusEncoder) writeHeader() error {
 		e.Packetno = 2
 	}
 
-	e.opusEnc, err = opus.NewEncoder(e.SampleRate, e.NumChans, opus.AppVoIP)
-	if err != nil {
-		return fmt.Errorf("error initializing  opus encoder")
-	}
 	e.encdata = make([]byte, 1000)
 
 	return nil

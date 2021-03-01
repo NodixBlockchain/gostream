@@ -18,12 +18,14 @@ type inputChannel struct {
 	buffers    []*inputChannelBuffer
 	totalRead  int
 	startTime  time.Time
+	token      string
 }
 
 type roomClient struct {
 	id         int
 	clientConn http.ResponseWriter
 	channel    chan []int16
+	token      string
 }
 
 type clientBuffer struct {
@@ -56,12 +58,12 @@ type Room struct {
 	ticker *time.Ticker
 }
 
-func (r *Room) addInput(sampleRate int, chans int) int {
+func (r *Room) addInput(sampleRate int, chans int, token string) int {
 
 	r.inputMut.Lock()
 
 	newinputId := r.currentInputId
-	r.inputs = append(r.inputs, &inputChannel{id: newinputId, sampleRate: sampleRate, channels: chans, totalRead: 0, startTime: time.Now()})
+	r.inputs = append(r.inputs, &inputChannel{id: newinputId, token: token, sampleRate: sampleRate, channels: chans, totalRead: 0, startTime: time.Now()})
 	r.currentInputId++
 
 	r.inputMut.Unlock()
@@ -99,12 +101,12 @@ func (r *Room) removeInput(id int) {
 	r.inputMut.Unlock()
 }
 
-func (r *Room) addClient(w http.ResponseWriter) int {
+func (r *Room) addClient(w http.ResponseWriter, token string) int {
 
 	r.clientsMut.Lock()
 
 	newClientid := r.currentclientId
-	r.clients = append(r.clients, &roomClient{id: newClientid, channel: make(chan []int16, 1), clientConn: w})
+	r.clients = append(r.clients, &roomClient{id: newClientid, token: token, channel: make(chan []int16, 1), clientConn: w})
 	r.currentclientId++
 
 	r.clientsMut.Unlock()

@@ -16,7 +16,7 @@ import (
 var roomList []*Room
 var roomsMut sync.Mutex
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", userid: 0}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1"}
 
 func grabRoom(roomId int) *Room {
 
@@ -75,7 +75,7 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write([]byte("check CRSF success"))
-	w.Write([]byte(strconv.Itoa(mysite.userid)))
+
 }
 
 func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +96,16 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		format = "opus"
 	}
 
+	token := r.FormValue("token")
+
+	/*
+		err = mysite.newListener(roomID, token)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("cannot create new Listener %v", err), http.StatusInternalServerError)
+			return
+		}
+	*/
+
 	room := grabRoom(roomID)
 
 	if room == nil {
@@ -112,7 +122,7 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(200)
 
-	newClientId := room.addClient(w)
+	newClientId := room.addClient(w, token)
 	client := room.getClient(newClientId)
 
 	log.Printf("new client : %d in room [%d] %s ", client.id, room.id, room.name)
@@ -151,6 +161,15 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	token := r.FormValue("token")
+	/*
+		err = mysite.newInput(roomID, token)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("mysite.newInput(%d,%s) API error %v", roomID, token, err), http.StatusInternalServerError)
+			return
+		}
+	*/
+
 	room := grabRoom(roomID)
 
 	if room == nil {
@@ -160,7 +179,7 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("new audio input in %s \n", room.name)
 
-	myInputId = room.addInput(48000, 1)
+	myInputId = room.addInput(48000, 1, token)
 	myinput := room.getInput(myInputId)
 
 	if myinput == nil {
