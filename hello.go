@@ -107,10 +107,13 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		token = r.FormValue("token")
 	}
 
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
+
 	if mysite.enable {
 		err = mysite.newListener(roomID, token)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("cannot create new Listener %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("cannot create new Listener %v", err), http.StatusForbidden)
 			return
 		}
 	}
@@ -128,8 +131,6 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", "audio/ogg")
 	}
 
-	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
-	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
 	w.WriteHeader(200)
 
 	newClientId := room.addClient(w, token)
@@ -177,7 +178,7 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		err = mysite.newInput(roomID, token)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("mysite.newInput(%d,%s) API error %v", roomID, token, err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("mysite.newInput(%d,%s) API error %v", roomID, token, err), http.StatusForbidden)
 			return
 		}
 	}
@@ -239,7 +240,7 @@ func main() {
 		http.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
 
 		go func() {
-			log.Fatal(http.ListenAndServe(":8081", nil))
+			log.Fatal(http.ListenAndServe(":80", nil))
 		}()
 	*/
 
