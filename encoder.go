@@ -340,18 +340,18 @@ func (e *OggOpusEncoder) writeHeader() error {
 
 		ve := vorbis.OpusHeaderout("goStream", e.SampleRate, e.NumChans, &header, &comments)
 		if ve != 0 {
-			return fmt.Errorf("unable to initialize ogg headers ")
+			return fmt.Errorf("unable to initialize ogg headers error %d", ve)
 		}
 
 		ve = vorbis.OggStreamInit(&e.os, 1)
 
 		if ve != 0 {
-			return fmt.Errorf("unable to initialize ogg stream ")
+			return fmt.Errorf("unable to initialize ogg stream error %d", ve)
 		}
 		ve = vorbis.MyOggStreamPacketin(&e.os, &header)
 
 		if ve != 0 {
-			return fmt.Errorf("unable to write header packet")
+			return fmt.Errorf("unable to write header packet error %d", ve)
 		}
 
 		for vorbis.OggStreamFlush(&e.os, &og) != 0 {
@@ -378,7 +378,7 @@ func (e *OggOpusEncoder) writeHeader() error {
 		ve = vorbis.MyOggStreamPacketin(&e.os, &comments)
 
 		if ve != 0 {
-			return fmt.Errorf("unable to write comment packet")
+			return fmt.Errorf("unable to write comment packet error %d", ve)
 		}
 
 		for vorbis.OggStreamFlush(&e.os, &og) != 0 {
@@ -397,7 +397,7 @@ func (e *OggOpusEncoder) writeBuffer(newBuffer []int16) error {
 
 	n, err := e.opusEnc.Encode(newBuffer, e.encdata)
 	if err != nil {
-		return fmt.Errorf("error encoding")
+		return fmt.Errorf("error encoding error %v ", err)
 	}
 
 	if e.useOgg {
@@ -414,15 +414,29 @@ func (e *OggOpusEncoder) writeBuffer(newBuffer []int16) error {
 
 		ve := vorbis.MyOggStreamPacketin(&e.os, &op)
 		if ve != 0 {
-			return fmt.Errorf("error packetizing opus")
+			return fmt.Errorf("error packetizing opus error %d", ve)
 		}
 
 		for vorbis.OggStreamPageout(&e.os, &og) != 0 {
-			e.w.Write(og.Header[:og.HeaderLen])
-			e.w.Write(og.Body[:og.BodyLen])
+			nWrote, err := e.w.Write(og.Header[:og.HeaderLen])
+
+			if (err != nil) || (nWrote < og.HeaderLen) {
+				return fmt.Errorf("write opus page io error %d/%d %v", nWrote, og.HeaderLen, err)
+			}
+
+			nWrote, err = e.w.Write(og.Body[:og.BodyLen])
+
+			if (err != nil) || (nWrote < og.BodyLen) {
+				return fmt.Errorf("write opus page io error  %d/%d %v", nWrote, og.BodyLen, err)
+			}
+
 		}
 	} else {
-		e.w.Write(e.encdata[:n])
+		nWrote, err := e.w.Write(e.encdata[:n])
+
+		if (err != nil) || (nWrote < n) {
+			return fmt.Errorf("write opus packget io error %d/%d %v", nWrote, n, err)
+		}
 	}
 
 	e.samplesWrote += int64(len(newBuffer))
