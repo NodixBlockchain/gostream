@@ -71,7 +71,8 @@ func (mysite *site) newInput(roomID int, token string) error {
 			return fmt.Errorf("io.ReadAll(resp.Body) failed : %s %v\r\n", url, httpErr)
 		}
 
-		if string(body) != "ok" {
+		ok, httpErr := strconv.Atoi(string(body))
+		if ok != 1 {
 			return fmt.Errorf("body error : %s \r\n", string(body))
 		}
 	}
@@ -101,7 +102,8 @@ func (mysite *site) newListener(roomID int, token string) error {
 			return fmt.Errorf("io.ReadAll(resp.Body) failed : %s %v\r\n", url, httpErr)
 		}
 
-		if string(body) != "ok" {
+		ok, httpErr := strconv.Atoi(string(body))
+		if ok != 1 {
 			return fmt.Errorf("body error : %s \r\n", string(body))
 		}
 	}
