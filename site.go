@@ -73,7 +73,7 @@ func (mysite *site) newInput(roomID int, token string) error {
 
 		ok, httpErr := strconv.Atoi(string(body))
 		if ok != 1 {
-			return fmt.Errorf("body error : %s \r\n", string(body))
+			return fmt.Errorf("body error : '%s' on URL '%s' \r\n", string(body), url)
 		}
 	}
 

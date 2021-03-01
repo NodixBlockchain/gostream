@@ -244,15 +244,59 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 }
 
+/*
+func newCRSF(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("content-type", "application/json")
+	w.Write([]byte("{\"token\" : \"123456token\"}"))
+
+}
+func crossLogin(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("content-type", "application/json")
+	w.Write([]byte("1"))
+
+}
+
+func envoieAudioGroup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	w.Write([]byte("1"))
+}
+
+func ecouteAudioGroup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+
+	//w.Write([]byte(r.URL.Path))
+	w.Write([]byte("1"))
+}
+*/
 func main() {
 
 	fmt.Println("goStream starting !")
+
+	/*
+		routerSite := mux.NewRouter()
+
+		routerSite.HandleFunc("/Membres/crossLogin/{token}", crossLogin)
+		routerSite.HandleFunc("/Membres/newCRSF", newCRSF)
+		routerSite.HandleFunc("/Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}", envoieAudioGroup)
+		routerSite.HandleFunc("/Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}", ecouteAudioGroup)
+
+		routerSite.Handle("/js/{file}", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
+		routerSite.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
+
+
+		go func() {
+			log.Fatal(http.ListenAndServe(":80", routerSite))
+		}()
+	*/
 
 	router := http.NewServeMux()
 	router.Handle("/upRoom", wsHandler{}) //handels websocket connections
 	router.HandleFunc("/joinRoom", handleJoinRoom)
 
 	router.HandleFunc("/tokenCheck", tokenCheck)
+
 	router.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
 	router.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
 
