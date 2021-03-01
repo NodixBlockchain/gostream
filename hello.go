@@ -76,6 +76,7 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 	err := mysite.checkCRSF(token)
 	if err != nil {
 		w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
+		log.Println("token check error ", token)
 		return
 	}
 
@@ -127,7 +128,7 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", "audio/ogg")
 	}
 
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
 	w.WriteHeader(200)
 
@@ -232,6 +233,15 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func main() {
 
 	fmt.Println("goStream starting !")
+
+	/*
+		http.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
+		http.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
+
+		go func() {
+			log.Fatal(http.ListenAndServe(":8081", nil))
+		}()
+	*/
 
 	router := http.NewServeMux()
 	router.Handle("/upRoom", wsHandler{}) //handels websocket connections

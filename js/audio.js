@@ -82,9 +82,6 @@
 				globalAudio.recorder = null;
 			}
 
-            globalAudio.stream.getTracks()[0].stop()
-
-
             globalAudio.recording = false;
             globalAudio.webSocket.close();
         }
