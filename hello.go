@@ -128,6 +128,7 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
 	w.WriteHeader(200)
 
 	newClientId := room.addClient(w, token)
