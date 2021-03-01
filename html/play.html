@@ -9,8 +9,10 @@
 
         var g={playing : false,totalSent:0,audioContext:null}
         let totalSamplesDecoded = 0;
+        var token = "my super token"
+        var roomID = 1
 
-        function playOpus(opusFile){
+        function playOpus(roomID,token){
 
             var audioStack = [];
             var nextTime = 0;
@@ -19,7 +21,7 @@
                 g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
             // Fetch a file and decode it.
-            fetch(opusFile, {credentials: 'include'})
+            fetch('http://localhost:8080/joinRoom?roomID='+roomID, {headers : {'CSRFToken': token}})
             .then(decodeOpusResponse)
             .then(_ => console.log('decoded '+totalSamplesDecoded+' samples.'))
             .catch(console.error);
@@ -77,7 +79,7 @@
             }
         }
    
-        function play(url) {
+        function play(roomID,token) {
 
             var audioStack = [];
             var nextTime = 0;
@@ -86,7 +88,7 @@
             if(g.audioContext == null)
                 g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-            fetch(url, { credentials: 'include' }).then(function(response) {
+            fetch('http://localhost:8080/joinRoom?roomID='+roomID+'&format=wav', {headers : {'CSRFToken': token}}).then(function(response) {
 
                 var reader = response.body.getReader();
 
@@ -169,7 +171,7 @@
             g.playing = false
         }
 
-        function startPlaying()
+        function startPlaying(roomID,token)
         {
             if(g.playing == false){
 
@@ -177,9 +179,9 @@
                 g.playing = true
 
                 if($('#format').val() == 'wav')
-                    play('http://localhost:8080/joinRoom?roomID=1&format=wav');
+                    play(roomID,token);
                 else
-                    playOpus('http://localhost:8080/joinRoom?roomID=1');            
+                    playOpus(roomID,token);
             }
             else
             {
@@ -189,16 +191,8 @@
         }
 
 
-    token = "my super token"
-
-    $.ajax({
-            url: 'http://localhost:8080/tokenCheck',
-            type: 'GET',
-            headers: { 'CSRFToken': token},
-            success: function (result) { console.log('CSRF response'); console.log(result); },
-            error: function (error) { console.log('error on ' + url); }
-        });    
-
+   
+   
     </script>
 
     
@@ -207,7 +201,7 @@
         <option value="opus">opus</option>
         <option value="wav">wav</option>
     </select>
-    <button id="play" onclick="startPlaying();">play</button>
+    <button id="play" onclick="startPlaying(roomID,token);" >play</button>
 
 </body>
 
