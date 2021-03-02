@@ -2,6 +2,7 @@
         var globalAudio = { playing : false, downstreamURL:'http://localhost:8080/joinRoom',totalSamplesDecoded :0,
                             recording : false, upstreamURL:'ws://localhost:8080/upRoom',totalSent:0,
                             token:null,
+                            Fetchcontroller:null,
                             audioContext:null}
                 
 
@@ -108,10 +109,15 @@
             if(globalAudio.audioContext == null)
                 globalAudio.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
+            
+            globalAudio.Fetchcontroller = new AbortController();
+            const { signal } = globalAudio.Fetchcontroller;
+    
+
             var opusURL = globalAudio.downstreamURL + "?roomID=" + roomID; // + "&token=" + token;
           
             // Fetch a file and decode it.
-            fetch(opusURL, {headers : {'CSRFToken': token}})
+            fetch(opusURL, {headers : {signal, 'CSRFToken': token}})
             .then(decodeOpusResponse)
             .then(_ => console.log('decoded '+globalAudio.totalSamplesDecoded+' samples.'))
             .catch(console.error);
@@ -205,9 +211,12 @@
             if(globalAudio.audioContext == null)
                 globalAudio.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
+            globalAudio.Fetchcontroller = new AbortController();
+            const { signal } = globalAudio.Fetchcontroller;                
+
             var url= globalAudio.downstreamURL + "?format=wav&roomID=" + roomID; // + "&token=" + token
 
-            fetch(url, {headers : {'CSRFToken': token}}).then(function(response) {
+            fetch(url, {headers : {signal, 'CSRFToken': token}}).then(function(response) {
 
                 console.log(response)
 
@@ -304,4 +313,5 @@
         function stoplaying()
         {
             globalAudio.playing = false
+            globalAudio.Fetchcontroller.abort();
         }
