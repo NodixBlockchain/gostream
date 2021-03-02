@@ -285,11 +285,20 @@ func crossLogin(w http.ResponseWriter, r *http.Request) {
 
 func envoieAudioGroup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
+
+	vars := mux.Vars(r)
+
+	log.Printf("envoie audio room [%s] token  '%s', on[%s]\r\n", vars["roomid"], vars["token"], vars["on"])
+
 	w.Write([]byte("1"))
 }
 
 func ecouteAudioGroup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
+
+	vars := mux.Vars(r)
+
+	log.Printf("ecoute audio room [%s] token  '%s', on[%s]\r\n", vars["roomid"], vars["token"], vars["on"])
 
 	//w.Write([]byte(r.URL.Path))
 	w.Write([]byte("1"))
