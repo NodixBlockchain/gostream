@@ -121,9 +121,9 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if mysite.enable {
-		err = mysite.newListener(roomID, token)
+		err = mysite.newListener(roomID, token, 1)
 		if err != nil {
-			log.Printf("API mysite.newListener(%d,%s) \r\n", roomID, token)
+			log.Printf("API mysite.newListener(%d,%s,1) \r\n", roomID, token)
 			log.Println("error ", err)
 
 			http.Error(w, "mysite.newListener API error", http.StatusForbidden)
@@ -167,6 +167,17 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+
+	if mysite.enable {
+		err = mysite.newListener(roomID, token, 0)
+		if err != nil {
+			log.Printf("API mysite.newListener(%d,%s,0) \r\n", roomID, token)
+			log.Println("error ", err)
+
+			http.Error(w, "mysite.newListener API error", http.StatusForbidden)
+			return
+		}
+	}
 }
 
 // wsHandler implements the Handler Interface
@@ -189,9 +200,9 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if mysite.enable {
 
-		err = mysite.newInput(roomID, token)
+		err = mysite.newInput(roomID, token, 1)
 		if err != nil {
-			log.Printf("API mysite.newInput(%d,%s) \r\n", roomID, token)
+			log.Printf("API mysite.newInput(%d,%s,1) \r\n", roomID, token)
 			log.Println("error : ", err)
 
 			http.Error(w, "mysite.newInput API error", http.StatusForbidden)
@@ -242,7 +253,18 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		myinput.totalRead += len(message)
 		myinput.buffers = append(myinput.buffers, &inputChannelBuffer{buffer: message, nRead: 0})
+	}
 
+	if mysite.enable {
+
+		err = mysite.newInput(roomID, token, 0)
+		if err != nil {
+			log.Printf("API mysite.newInput(%d,%s,0) \r\n", roomID, token)
+			log.Println("error : ", err)
+
+			http.Error(w, "mysite.newInput API error", http.StatusForbidden)
+			return
+		}
 	}
 
 }
@@ -282,8 +304,8 @@ func main() {
 
 		routerSite.HandleFunc("/Membres/crossLogin/{token}", crossLogin)
 		routerSite.HandleFunc("/Membres/newCRSF", newCRSF)
-		routerSite.HandleFunc("/Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}", envoieAudioGroup)
-		routerSite.HandleFunc("/Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}", ecouteAudioGroup)
+		routerSite.HandleFunc("/Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", envoieAudioGroup)
+		routerSite.HandleFunc("/Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", ecouteAudioGroup)
 
 		routerSite.Handle("/js/{file}", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
 		routerSite.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))

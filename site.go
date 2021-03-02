@@ -49,10 +49,10 @@ func (mysite *site) checkCRSF(token string) error {
 	return nil
 }
 
-func (mysite *site) newInput(roomID int, token string) error {
+func (mysite *site) newInput(roomID int, token string, on int) error {
 	client := &http.Client{}
 
-	url := mysite.siteURL + "/Groupes/envoieAudioGroup/" + strconv.Itoa(roomID) + "/" + token
+	url := mysite.siteURL + "/Groupes/envoieAudioGroup/" + strconv.Itoa(roomID) + "/" + token + "/" + strconv.Itoa(on)
 
 	req, httpErr := http.NewRequest("GET", url, nil)
 	if httpErr != nil {
@@ -80,10 +80,10 @@ func (mysite *site) newInput(roomID int, token string) error {
 	return nil
 }
 
-func (mysite *site) newListener(roomID int, token string) error {
+func (mysite *site) newListener(roomID int, token string, on int) error {
 	client := &http.Client{}
 
-	url := mysite.siteURL + "/Groupes/ecouteAudioGroup/" + strconv.Itoa(roomID) + "/" + token
+	url := mysite.siteURL + "/Groupes/ecouteAudioGroup/" + strconv.Itoa(roomID) + "/" + token + "/" + strconv.Itoa(on)
 
 	req, httpErr := http.NewRequest("GET", url, nil)
 	if httpErr != nil {
