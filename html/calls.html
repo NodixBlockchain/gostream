@@ -1,0 +1,185 @@
+<html>
+<head>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" ></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+    
+    <script src="http://localhost:8080/js/opus-stream-decoder.js"></script>
+    <script src="http://localhost:8080/js/audio.js"></script>
+</head>
+
+<style>
+    #appel-decline { display:none }
+</style>
+
+<body>
+
+  
+
+    <h1 id="moi"></h1>
+
+    <button id="appel" onclick=" call($('#Destination').val(), token); ">appel</button>
+
+    <input type="text" id="Destination" />
+
+    <div class="modal" tabindex="-1" role="dialog"  id="appelModal1" aria-labelledby="appelModal1Label" aria-hidden="true" >
+        <div class="modal-dialog modal-dialog-centered" role="document">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="appelModal1Label" ></h5>
+              <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+              </button>
+            </div>
+            <div class="modal-body center">
+                <span id="appel-calling">calling ... </span>
+                <span id="appel-decline"></span>
+            </div>
+            <div class="modal-footer center">
+                
+                <button class="btn btn-primary"  data-dismiss="modal">fermer</button>
+            </div>
+          </div>
+        </div>
+      </div>        
+
+
+    <div class="modal" tabindex="-1" role="dialog"  id="appelModal" aria-labelledby="appelModalLabel" aria-hidden="true" >
+        <div class="modal-dialog modal-dialog-centered" role="document">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="appelModalLabel" ></h5>
+              <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+              </button>
+            </div>
+            <div class="modal-body">
+                <div id="call-infos"></div>
+            </div>
+            <div class="modal-footer center">
+                <input type="hidden" id="callerID" />
+                <button class="btn btn-primary" id="accept-call-btn" onclick="acceptCall($('#callerID').val() ,token);">accept</button> 
+                <button class="btn btn-primary" id="reject-call-btn" onclick="rejectCall( $('#callerID').val() ,token);">decline</button>
+            </div>
+          </div>
+        </div>
+      </div>    
+
+      <script>
+          
+        var token= Math.floor(Math.random() * 1000000)
+        var meID = Math.floor(Math.random() * 100)
+
+        function acceptCall(From, token)
+        {
+            $.ajax({
+                url: 'http://localhost:8080/acceptCall?From=' + From,
+                type: 'GET',
+                dataType: "json",
+                headers: { 'CSRFToken': token},
+                success: function (result) {  startCall(result.roomid,token); $('#call-infos').html('call established '+result.roomid) },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
+            }); 
+        }   
+        
+        function callAccepted(data)
+        {
+            $.ajax({
+                url: 'http://localhost:8080/tokenCheck',
+                type: 'GET',
+                dataType: "text",
+                headers: { 'CSRFToken': data.from},
+                success: function (result) {playCall(data.roomid, data.from);  $('#accept-call-btn').prop('disabled','disabled'); $('#reject-call-btn').prop('disabled','disabled'); $('#appel-calling').css('display','inline');  $('#appel-calling').html('call established '+data.roomid);   },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
+            }); 
+        }        
+        
+        function rejectCall(From, token)
+        {
+            $.ajax({
+                url: 'http://localhost:8080/rejectCall?From=' + From,
+                type: 'GET',
+                dataType: "text",
+                headers: { 'CSRFToken': token},
+                success: function (result) {   $('#accept-call-btn').prop('disabled','disabled'); $('#reject-call-btn').prop('disabled','disabled'); },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
+            }); 
+        }
+
+        function callDeclined(data)
+        {
+            $.ajax({
+                url: 'http://localhost:8080/tokenCheck',
+                type: 'GET',
+                dataType: "text",
+                headers: { 'CSRFToken': data.from},
+                success: function (result) { $('#appel-calling').css('display','none'); $('#appel-decline').css('display','inline'); $('#appel-decline').html(result+ ' a decliné l\'appel ');  },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
+            }); 
+        }
+
+        function call(DestinationID, token)
+        {
+            $('#appel-calling').css('display','inline');
+            $('#appel-calling').html('calling ...');
+
+            $.ajax({
+                url: 'http://localhost:8080/newCall?Destination='+DestinationID,
+                type: 'GET',
+                dataType: "text",
+                headers: { 'CSRFToken': token},
+                success: function (result) {  $('#appel-decline').css('display','none');   $('#appelModal1Label').html('Appel '+ DestinationID); $('#appelModal1').modal(); },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
+            }); 
+
+        }
+        
+        function called(data) 
+        {
+            $('#call-infos').empty();
+            $.ajax({
+                url: 'http://localhost:8080/tokenCheck',
+                type: 'GET',
+                dataType: "text",
+                headers: { 'CSRFToken': data.from},
+                success: function (result) { $('#appel-calling').css('display','none'); $('#callerID').val(result); $('#accept-call-btn').prop('disabled',false); $('#reject-call-btn').prop('disabled',false); $('#appelModalLabel').html('Appel de '+ result); $('#appelModal').modal(); },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
+            });     
+        }
+
+
+        function createEventSource(userID, tok)
+        {
+            var streamSource = new EventSource('http://localhost:8080/messages?CSRFtoken=' + token);
+            
+            streamSource.addEventListener('newCall',function(e){called(JSON.parse(e.data))});
+            streamSource.addEventListener('declineCall',function(e){callDeclined(JSON.parse(e.data))});
+            streamSource.addEventListener('acceptedCall',function(e){callAccepted(JSON.parse(e.data))});
+
+            
+        }
+
+        $.getJSON('http://localhost/Membres/newCRSF', function(result)  {
+
+            console.log('token result : ')
+            console.log(result)
+
+            $.ajax({
+                url: 'http://localhost:8080/tokenCheck',
+                type: 'GET',
+                dataType: "text",
+                headers: { 'CSRFToken': result.token},
+                success: function (userID) {  token = result.token; meID = userID; $('#moi').html( 'moi : ' + meID + '(' + token + ')' ); createEventSource(parseInt(userID),result.token); },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
+            });            
+
+           
+        });
+    
+        </script>
+
+</body>
+
+
+</html>

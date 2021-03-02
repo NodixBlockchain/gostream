@@ -18,6 +18,11 @@ var roomsMut sync.Mutex
 
 var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
+var callsList []*Room
+var callsMut sync.Mutex
+
+var messageClients []*messageClient
+
 func grabRoom(roomId int) *Room {
 
 	var newRoom *Room = nil
@@ -41,7 +46,7 @@ func grabRoom(roomId int) *Room {
 	channels := 1
 	latencyMS := 100
 
-	newRoom = &Room{id: roomId, name: "my room", desc: "", RoomType: "", inputs: make([]*inputChannel, 0, 128), output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
+	newRoom = &Room{id: roomId, name: "my room", desc: "", RoomType: "", callFrom: 0, callTo: 0, inputs: make([]*inputChannel, 0, 128), output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
 	newRoom.ticker = time.NewTicker(time.Millisecond * time.Duration(latencyMS))
 
 	go func(myroom *Room) {
@@ -62,7 +67,6 @@ func grabRoom(roomId int) *Room {
 
 func tokenCheck(w http.ResponseWriter, r *http.Request) {
 
-	w.Header().Set("access-control-allow-credentials", "true")
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
 
@@ -78,14 +82,84 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 	//token := r.FormValue("token")
 	token := r.Header.Get("CSRFtoken")
 
-	err := mysite.checkCRSF(token)
+	userid, err := mysite.checkCRSF(token)
 	if err != nil {
 		w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
 		log.Printf("token %s check error %v ", token, err)
 		return
 	}
 
-	w.Write([]byte("check CRSF success\r\n"))
+	w.Write([]byte(strconv.Itoa(userid)))
+
+}
+
+func handleJoinCall(w http.ResponseWriter, r *http.Request) {
+	var err error
+	var format string
+	var roomID int
+
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
+
+	if r.Method != "GET" {
+		w.WriteHeader(200)
+		return
+	}
+
+	roomID, err = strconv.Atoi(r.FormValue("roomID"))
+
+	if err != nil {
+		http.Error(w, "bad room id", http.StatusInternalServerError)
+		return
+	}
+
+	format = r.FormValue("format")
+
+	if len(format) <= 0 {
+		format = "opus"
+	}
+
+	token := r.Header.Get("CSRFtoken")
+	if token == "" {
+		token = r.FormValue("token")
+	}
+
+	room := findCall(roomID)
+
+	if room == nil {
+		http.Error(w, "room not found", http.StatusInternalServerError)
+		return
+	}
+
+	if format == "wav" {
+		w.Header().Set("content-type", "audio/wav")
+	} else {
+		w.Header().Set("content-type", "audio/ogg")
+	}
+
+	w.WriteHeader(200)
+
+	newClientId := room.addClient(w, token)
+	client := room.getClient(newClientId)
+
+	log.Printf("new client : %d in room [%d] %s using token '%s'", client.id, room.id, room.name, token)
+
+	defer room.removeClient(newClientId)
+
+	e := getEncoder(format, w, room.output)
+	err = e.writeHeader()
+
+	if err != nil {
+		http.Error(w, "error initializing audio encoder  ", http.StatusInternalServerError)
+		return
+	}
+
+	for {
+		newBuffer := <-client.channel
+		if e.writeBuffer(newBuffer) != nil {
+			break
+		}
+	}
 
 }
 
@@ -181,6 +255,83 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 // wsHandler implements the Handler Interface
+type wsCallHandler struct{}
+
+func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	var roomID int
+	var myInputId int
+
+	roomID, err = strconv.Atoi(r.FormValue("roomID"))
+
+	if err != nil {
+		http.Error(w, "not room id", http.StatusInternalServerError)
+		return
+	}
+
+	token := r.FormValue("token")
+
+	room := grabRoom(roomID)
+
+	if room == nil {
+		http.Error(w, "room not found", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("new audio input in %s using token '%s'\n", room.name, token)
+
+	myInputId = room.addInput(48000, 1, token)
+	myinput := room.getInput(myInputId)
+
+	if myinput == nil {
+
+		http.Error(w, "unable to add new input to room", http.StatusInternalServerError)
+		return
+	}
+
+	defer room.removeInput(myInputId)
+
+	// upgrader is needed to upgrade the HTTP Connection to a websocket Connection
+	upgrader := &websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	}
+
+	//Upgrading HTTP Connection to websocket connection
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+	wsConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("error upgrading %s", err)
+		return
+	}
+
+	for {
+		_, message, err := wsConn.ReadMessage()
+		if err != nil {
+			log.Println("read:", err)
+			break
+		}
+
+		myinput.totalRead += len(message)
+		myinput.buffers = append(myinput.buffers, &inputChannelBuffer{buffer: message, nRead: 0})
+	}
+
+	if mysite.enable {
+
+		err = mysite.newInput(roomID, token, 0)
+		if err != nil {
+			log.Printf("API mysite.newInput(%d,%s,0) \r\n", roomID, token)
+			log.Println("error : ", err)
+
+			http.Error(w, "mysite.newInput API error", http.StatusForbidden)
+			return
+		}
+	}
+
+}
+
+// wsHandler implements the Handler Interface
 type wsHandler struct{}
 
 func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -270,16 +421,46 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 /*
+var tokens map[string]int
+
+var userid = 1
+
+var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func RandStringRunes(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+	}
+	return string(b)
+}
+
 func newCRSF(w http.ResponseWriter, r *http.Request) {
 
+	newtoken := RandStringRunes(12)
+
+	tokens[newtoken] = userid
+	userid++
+
 	w.Header().Set("content-type", "application/json")
-	w.Write([]byte("{\"token\" : \"123456token\"}"))
+	w.Write([]byte("{\"token\" : \"" + newtoken + "\"}"))
 
 }
 func crossLogin(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("content-type", "application/json")
-	w.Write([]byte("1"))
+
+	vars := mux.Vars(r)
+
+	token := vars["token"]
+
+	i, ok := tokens[token]
+
+	if ok {
+		w.Write([]byte(strconv.Itoa(i)))
+	} else {
+		w.Write([]byte("0"))
+	}
 
 }
 
@@ -303,22 +484,37 @@ func ecouteAudioGroup(w http.ResponseWriter, r *http.Request) {
 	//w.Write([]byte(r.URL.Path))
 	w.Write([]byte("1"))
 }
+
+func peuxAppeller(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+
+	vars := mux.Vars(r)
+
+	log.Printf("peuxAppeller [%s] token '%s'\r\n", vars["destination"], vars["token"])
+
+	//w.Write([]byte(r.URL.Path))
+	w.Write([]byte("1"))
+}
 */
+
 func main() {
 
 	fmt.Println("goStream starting !")
 
 	/*
+		tokens = make(map[string]int)
+
 		routerSite := mux.NewRouter()
 
 		routerSite.HandleFunc("/Membres/crossLogin/{token}", crossLogin)
 		routerSite.HandleFunc("/Membres/newCRSF", newCRSF)
+		routerSite.HandleFunc("/Membres/peuxAppeller/{destination:[0-9]+}/{token:[a-zA-Z0-9]+}", peuxAppeller)
+
 		routerSite.HandleFunc("/Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", envoieAudioGroup)
 		routerSite.HandleFunc("/Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", ecouteAudioGroup)
 
 		routerSite.Handle("/js/{file}", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
-		routerSite.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
-
+		routerSite.Handle("/html/{file}", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
 
 		go func() {
 			log.Fatal(http.ListenAndServe(":80", routerSite))
@@ -326,8 +522,16 @@ func main() {
 	*/
 
 	router := http.NewServeMux()
-	router.Handle("/upRoom", wsHandler{}) //handels websocket connections
+	router.Handle("/upRoom", wsHandler{})     //handels websocket connections
+	router.Handle("/upCall", wsCallHandler{}) //handels websocket connections
+
 	router.HandleFunc("/joinRoom", handleJoinRoom)
+	router.HandleFunc("/joinCall", handleJoinCall)
+
+	router.HandleFunc("/newCall", newCall)
+	router.HandleFunc("/rejectCall", rejectCall)
+	router.HandleFunc("/acceptCall", acceptCall)
+	router.HandleFunc("/messages", messages)
 
 	router.HandleFunc("/tokenCheck", tokenCheck)
 

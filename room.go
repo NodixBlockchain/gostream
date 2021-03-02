@@ -46,6 +46,9 @@ type Room struct {
 	desc     string
 	RoomType string
 
+	callFrom int
+	callTo   int
+
 	currentInputId  int
 	currentclientId int
 
