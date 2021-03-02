@@ -272,7 +272,7 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	token := r.FormValue("token")
 
-	room := grabRoom(roomID)
+	room := findCall(roomID)
 
 	if room == nil {
 		http.Error(w, "room not found", http.StatusInternalServerError)
