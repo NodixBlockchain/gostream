@@ -1,8 +1,8 @@
 
         var globalAudio = { playing : false, downstreamURL:'http://localhost:8080/joinRoom',totalSamplesDecoded :0,
                             recording : false, upstreamURL:'ws://localhost:8080/upRoom',totalSent:0,
-                            upCallURL:'ws://localhost:8080/upCall',
                             downCallURL:'http://localhost:8080/joinCall',FetchCallcontroller:null,
+                            upCallURL:'ws://localhost:8080/upCall',
                             token:null,
                             Fetchcontroller:null,
                             audioContext:null}
