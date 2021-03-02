@@ -90,7 +90,7 @@
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': data.from},
-                success: function (result) {playCall(data.roomid, data.from);  $('#accept-call-btn').prop('disabled','disabled'); $('#reject-call-btn').prop('disabled','disabled'); $('#appel-calling').css('display','inline');  $('#appel-calling').html('call established '+data.roomid);   },
+                success: function (result) {playCall(data.roomid, token);  $('#accept-call-btn').prop('disabled','disabled'); $('#reject-call-btn').prop('disabled','disabled'); $('#appel-calling').css('display','inline');  $('#appel-calling').html('call established '+data.roomid);   },
                 error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
             }); 
         }        
@@ -170,7 +170,7 @@
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': result.token},
-                success: function (userID) {  token = result.token; meID = userID; $('#moi').html( 'moi : ' + meID + '(' + token + ')' ); createEventSource(parseInt(userID),result.token); },
+                success: function (userID) {  token = result.token; meID = userID; $('#moi').html( 'moi : ' + meID ); createEventSource(parseInt(userID),result.token); },
                 error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
             });            
 
