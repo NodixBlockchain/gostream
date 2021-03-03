@@ -74,7 +74,7 @@
         function acceptCall(From, token)
         {
             $.ajax({
-                url: 'http://localhost:8080/acceptCall?From=' + From,
+                url: 'http://'+streamServer+'/acceptCall?From=' + From,
                 type: 'GET',
                 dataType: "json",
                 headers: { 'CSRFToken': token},
@@ -86,7 +86,7 @@
         function callAccepted(data)
         {
             $.ajax({
-                url: 'http://localhost:8080/tokenCheck',
+                url: 'http://'+streamServer+'/tokenCheck',
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': data.from},
@@ -98,7 +98,7 @@
         function rejectCall(From, token)
         {
             $.ajax({
-                url: 'http://localhost:8080/rejectCall?From=' + From,
+                url: 'http://'+streamServer+'/rejectCall?From=' + From,
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': token},
@@ -110,7 +110,7 @@
         function callDeclined(data)
         {
             $.ajax({
-                url: 'http://localhost:8080/tokenCheck',
+                url: 'http://'+streamServer+'/tokenCheck',
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': data.from},
@@ -125,7 +125,7 @@
             $('#appel-calling').html('calling ...');
 
             $.ajax({
-                url: 'http://localhost:8080/newCall?Destination='+DestinationID,
+                url: 'http://'+streamServer+'/newCall?Destination='+DestinationID,
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': token},
@@ -139,7 +139,7 @@
         {
             $('#call-infos').empty();
             $.ajax({
-                url: 'http://localhost:8080/tokenCheck',
+                url: 'http://'+streamServer+'/tokenCheck',
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': data.from},
@@ -151,7 +151,7 @@
 
         function createEventSource(userID, tok)
         {
-            var streamSource = new EventSource('http://localhost:8080/messages?CSRFtoken=' + token);
+            var streamSource = new EventSource('http://'+streamServer+'/messages?CSRFtoken=' + token);
             
             streamSource.addEventListener('newCall',function(e){called(JSON.parse(e.data))});
             streamSource.addEventListener('declineCall',function(e){callDeclined(JSON.parse(e.data))});
@@ -166,7 +166,7 @@
             console.log(result)
 
             $.ajax({
-                url: 'http://localhost:8080/tokenCheck',
+                url: 'http://'+streamServer+'/tokenCheck',
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': result.token},

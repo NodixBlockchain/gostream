@@ -43,7 +43,7 @@ func findCall(roomId int) *Room {
 	for i := 0; i < len(callsList); i++ {
 
 		if callsList[i].id == roomId {
-			return roomList[i]
+			return callsList[i]
 		}
 	}
 

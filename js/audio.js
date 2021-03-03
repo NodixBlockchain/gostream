@@ -1,8 +1,11 @@
 
-        var globalAudio = { playing : false, downstreamURL:'http://localhost:8080/joinRoom',totalSamplesDecoded :0,
-                            recording : false, upstreamURL:'ws://localhost:8080/upRoom',totalSent:0,
-                            downCallURL:'http://localhost:8080/joinCall',FetchCallcontroller:null,
-                            upCallURL:'ws://localhost:8080/upCall',
+        var streamServer = 'localhost:8080';
+
+
+        var globalAudio = { playing : false, downstreamURL:'http://'+streamServer + '/joinRoom',totalSamplesDecoded :0,
+                            recording : false, upstreamURL:'ws://'+streamServer + '/upRoom',totalSent:0,
+                            downCallURL:'http://'+streamServer + '/joinCall',FetchCallcontroller:null,
+                            upCallURL:'ws://'+streamServer + '/upCall',
                             token:null,
                             Fetchcontroller:null,
                             audioContext:null}
