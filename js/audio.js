@@ -71,7 +71,7 @@
 
             globalAudio.calling  = true;
     
-            var opusURL = globalAudio.downCallURL + "?roomID=" + roomID; // + "&token=" + token;
+            var opusURL = globalAudio.downCallURL + "?roomID=" + roomID; 
           
             // Fetch a file and decode it.
             fetch(opusURL, {signal, headers : { 'CSRFToken': token}})
@@ -364,7 +364,7 @@
             globalAudio.Fetchcontroller = new AbortController();
             const { signal } = globalAudio.Fetchcontroller;                
 
-            var url= globalAudio.downstreamURL + "?format=wav&roomID=" + roomID; // + "&token=" + token
+            var url= globalAudio.downstreamURL + "?format=wav&roomID=" + roomID; 
 
             fetch(url, {signal,headers : { 'CSRFToken': token}}).then(function(response) {
 

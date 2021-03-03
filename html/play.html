@@ -190,11 +190,35 @@
             }
         }
 
+      
+        function updateMembres(data)
+ {
+    Createur = data.Createur;
+    Membres  = data.Membres;
 
-   
+    $('#liste-membres').html('<h2>Membres du groupe</h2>');
+
+    var h3 = document.createElement('h3');
+    h3.innerHTML = 'Createur' + Createur.username + ' micOn:' + Createur.envoiAudio+ ' casqueOn:' + Createur.ecouteAudio;
+    
+    $('#liste-membres').append(h3);
+    
+    for(var i =0; i<Membres.length; i++){
+
+        var div = document.createElement('div');
+        div.className = 'Membre';
+        div.innerHTML = Membres[i].username+ ' micOn:' + Membres[i].envoiAudio+ ' casqueOn:' + Membres[i].ecouteAudio;
+
+        $('#liste-membres').append(div);
+    }
+
+ }
+
+        //myTimeout2 = setInterval( function (){ $.getJSON( '' , updateMembres); }, 1000 );
    
     </script>
 
+    <div id="liste-membres"></div>
     
 
     <select id="format">
@@ -202,6 +226,24 @@
         <option value="wav">wav</option>
     </select>
     <button id="play" onclick="startPlaying(roomID,token);" >play</button>
+
+    <script>
+                updateMembres({
+            "Createur": {
+                "id": "1",
+                "mail": "zorkanethegame@gmail.com",
+                "password": "f876a49f19cf2836cba9af5d6afcb50d",
+                "username": "SuperKing174",
+                "status": null,
+                "derniereActivite": "2021-03-02 13:02:10",
+                "ecouteAudio": "0",
+                "envoiAudio": "0"
+            },
+            "Membres": []
+        });
+   
+    </script>
+    </script>
 
 </body>
 
