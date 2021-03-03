@@ -5,20 +5,18 @@ import "C"
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
 
 var roomList []*Room
 var roomsMut sync.Mutex
 
-var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
 var callsList []*Room
 var callsMut sync.Mutex
@@ -422,6 +420,7 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 }
 
+/*
 var tokens map[string]int
 
 var userid = 1
@@ -496,28 +495,31 @@ func peuxAppeller(w http.ResponseWriter, r *http.Request) {
 	//w.Write([]byte(r.URL.Path))
 	w.Write([]byte("1"))
 }
+*/
 
 func main() {
 
 	fmt.Println("goStream starting !")
 
-	tokens = make(map[string]int)
+	/*
+		tokens = make(map[string]int)
 
-	routerSite := mux.NewRouter()
+		routerSite := mux.NewRouter()
 
-	routerSite.HandleFunc("/Membres/crossLogin/{token}", crossLogin)
-	routerSite.HandleFunc("/Membres/newCRSF", newCRSF)
-	routerSite.HandleFunc("/Membres/peuxAppeller/{destination:[0-9]+}/{token:[a-zA-Z0-9]+}", peuxAppeller)
+		routerSite.HandleFunc("/Membres/crossLogin/{token}", crossLogin)
+		routerSite.HandleFunc("/Membres/newCRSF", newCRSF)
+		routerSite.HandleFunc("/Membres/peuxAppeller/{destination:[0-9]+}/{token:[a-zA-Z0-9]+}", peuxAppeller)
 
-	routerSite.HandleFunc("/Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", envoieAudioGroup)
-	routerSite.HandleFunc("/Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", ecouteAudioGroup)
+		routerSite.HandleFunc("/Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", envoieAudioGroup)
+		routerSite.HandleFunc("/Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", ecouteAudioGroup)
 
-	routerSite.Handle("/js/{file}", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
-	routerSite.Handle("/html/{file}", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
+		routerSite.Handle("/js/{file}", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
+		routerSite.Handle("/html/{file}", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
 
-	go func() {
-		log.Fatal(http.ListenAndServe(":80", routerSite))
-	}()
+		go func() {
+			log.Fatal(http.ListenAndServe(":80", routerSite))
+		}()
+	*/
 
 	router := http.NewServeMux()
 	router.Handle("/upRoom", wsHandler{})     //handels websocket connections
