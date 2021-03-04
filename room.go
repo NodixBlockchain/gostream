@@ -19,6 +19,7 @@ type inputChannel struct {
 	totalRead  int
 	startTime  time.Time
 	token      string
+	bufMut     sync.Mutex
 }
 
 type roomClient struct {
@@ -124,9 +125,9 @@ func (r *Room) writeClientChannel(buf clientBuffer) error {
 	for i := 0; i < len(r.clients); i++ {
 
 		if r.clients[i].id == buf.clientid {
-			//if len(r.clients[i].channel) < 2 {
-			r.clients[i].channel <- buf.buffer
-			//}
+			if len(r.clients[i].channel) < 2 {
+				r.clients[i].channel <- buf.buffer
+			}
 			break
 		}
 	}
@@ -182,6 +183,67 @@ func (r *Room) removeClient(id int) {
 	r.clientsMut.Unlock()
 }
 
+func (r *Room) isActive() bool {
+
+	r.inputMut.Lock()
+	defer r.inputMut.Unlock()
+
+	if len(r.inputs) > 0 {
+		return true
+	}
+
+	return false
+}
+
+func (r *Room) getInputsIds() []int {
+
+	r.inputMut.Lock()
+	retbuf := make([]int, len(r.inputs), len(r.inputs))
+	for idx, input := range r.inputs {
+		retbuf[idx] = input.id
+	}
+	r.inputMut.Unlock()
+
+	return retbuf
+}
+
+func (i *inputChannel) getBuffer() *inputChannelBuffer {
+	i.bufMut.Lock()
+	defer i.bufMut.Unlock()
+
+	if len(i.buffers) > 0 {
+		return i.buffers[0]
+	}
+
+	return nil
+}
+
+func (i *inputChannel) readSample(curBuffer *inputChannelBuffer) (*inputChannelBuffer, int16) {
+
+	//read sample from input
+	inputSample := int16(curBuffer.buffer[curBuffer.nRead]) + (int16(curBuffer.buffer[curBuffer.nRead+1]) << 8)
+	curBuffer.nRead += 2
+
+	//unshift first buffer when all data is read
+	if (curBuffer.nRead + 1) >= len(curBuffer.buffer) {
+
+		i.bufMut.Lock()
+		defer i.bufMut.Unlock()
+
+		i.buffers = i.buffers[1:]
+
+		//break input loop if no more buffers
+		if len(i.buffers) <= 0 {
+			//log.Println("starvation")
+			return nil, inputSample
+		}
+		//update pointer to first buffer
+		curBuffer = i.buffers[0]
+	}
+
+	return curBuffer, inputSample
+}
+
 func (r *Room) mixOutputChannel(time time.Time) []clientBuffer {
 
 	nSamples := r.output.buffSize / 2
@@ -191,48 +253,44 @@ func (r *Room) mixOutputChannel(time time.Time) []clientBuffer {
 
 	//log.Printf("out %d \n", nSamples)
 
+	ids := r.getInputsIds()
+
 	//iterate through room inputs
-	for _, myinput := range r.inputs {
+	for _, id := range ids {
 
-		if len(myinput.buffers) > 0 {
+		myinput := r.getInput(id)
 
-			curBuffer := myinput.buffers[0]
+		if myinput == nil {
+			continue
+		}
 
-			//iterate through room input samples to fill the buffer
-			for nWriteChan := 0; nWriteChan < nSamples; nWriteChan++ {
+		curBuffer := myinput.getBuffer()
+		if curBuffer == nil {
+			continue
+		}
 
-				//read sample from input
-				inputSample := int16(curBuffer.buffer[curBuffer.nRead]) + (int16(curBuffer.buffer[curBuffer.nRead+1]) << 8)
-				curBuffer.nRead += 2
+		//iterate through room input samples to fill the buffer
+		for nWriteChan := 0; nWriteChan < nSamples; nWriteChan++ {
+			var inputSample int16
 
-				//unshift first buffer when all data is read
-				if (curBuffer.nRead + 1) >= len(curBuffer.buffer) {
+			curBuffer, inputSample = myinput.readSample(curBuffer)
 
-					myinput.buffers = myinput.buffers[1:]
+			//iterate through room client buffers to mix the sample
+			for _, buffer := range clientBuffers {
 
-					//break input loop if no more buffers
-					if len(myinput.buffers) <= 0 {
-						//log.Println("starvation")
-						break
-					}
-					//update pointer to first buffer
-					curBuffer = myinput.buffers[0]
+				var newsample int32 = int32(buffer.buffer[nWriteChan]) + int32(inputSample)
+
+				if newsample > 32767 {
+					buffer.buffer[nWriteChan] = 32767
+				} else if newsample < -32768 {
+					buffer.buffer[nWriteChan] = -32768
+				} else {
+					buffer.buffer[nWriteChan] = int16(newsample)
 				}
+			}
 
-				//iterate through room client buffers to mix the sample
-				for _, buffer := range clientBuffers {
-
-					var newsample int32 = int32(buffer.buffer[nWriteChan]) + int32(inputSample)
-
-					if newsample > 32767 {
-						buffer.buffer[nWriteChan] = 32767
-					} else if newsample < -32768 {
-						buffer.buffer[nWriteChan] = -32768
-					} else {
-						buffer.buffer[nWriteChan] = int16(newsample)
-					}
-
-				}
+			if curBuffer == nil {
+				break
 			}
 		}
 	}

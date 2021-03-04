@@ -31,9 +31,6 @@
           <div class="modal-content">
             <div class="modal-header">
               <h5 class="modal-title" id="appelModal1Label" ></h5>
-              <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                <span aria-hidden="true">&times;</span>
-              </button>
             </div>
             <div class="modal-body center">
                 <span id="appel-calling"></span>
@@ -53,9 +50,6 @@
           <div class="modal-content">
             <div class="modal-header">
               <h5 class="modal-title" id="appelModalLabel" ></h5>
-              <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                <span aria-hidden="true">&times;</span>
-              </button>
             </div>
             <div class="modal-body">
                 <div id="call-infos"></div>
@@ -151,7 +145,7 @@
         
         function callAccepted(data)
         {
-            playCall(data.roomid, globalAudio.token);  
+            playCallWav(data.roomid, globalAudio.token);  
                 
             $('#appel-calling').css('display','inline');  
             $('#appel-calling').html('call established '+data.roomid);   

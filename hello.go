@@ -18,11 +18,6 @@ var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.1
 
 //var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
 
-var callsList []*Room
-var callsMut sync.Mutex
-
-var messageClients []*messageClient
-
 func grabRoom(roomId int) *Room {
 
 	var newRoom *Room = nil
@@ -52,7 +47,11 @@ func grabRoom(roomId int) *Room {
 	go func(myroom *Room) {
 
 		for t := range myroom.ticker.C {
-			//Call the periodic function here.
+
+			if !myroom.isActive() {
+				continue
+			}
+
 			var buffers = myroom.mixOutputChannel(t)
 			for _, mybuf := range buffers {
 				myroom.writeClientChannel(mybuf)
@@ -314,7 +313,10 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		myinput.totalRead += len(message)
+
+		myinput.bufMut.Lock()
 		myinput.buffers = append(myinput.buffers, &inputChannelBuffer{buffer: message, nRead: 0})
+		myinput.bufMut.Unlock()
 	}
 
 	if mysite.enable {
@@ -562,7 +564,6 @@ func keyXCHG(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("content-type", "application/json")
 	w.Write([]byte("{\"pubkey\" : \"" + hex.EncodeToString(myk) + "\"}"))
-
 }
 */
 

@@ -150,6 +150,117 @@
             }
         }
 
+
+        function playCallWav(roomID, token){
+
+            var audioStack = [];
+            var nextTime = 0;
+            var leftByte = null
+
+        
+          
+            globalAudio.calling = true                           
+          
+            if(globalAudio.audioContext == null)
+                globalAudio.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            globalAudio.Fetchcontroller = new AbortController();
+            const { signal } = globalAudio.Fetchcontroller;                
+
+            var url= globalAudio.downstreamURL + "?format=wav&roomID=" + roomID; 
+
+            fetch(url, {signal,headers : { 'CSRFToken': token}}).then(function(response) {
+
+                var contentType =''
+
+                for(let entry of response.headers.entries()) {
+                     if(entry[0] == 'content-type')
+                        contentType = entry[1]
+                }                
+
+                if(contentType != 'audio/wav')
+                {
+                    alert('wrong content type '+contentType)
+                    alert(response.body.readAll())
+                    return;
+                }
+
+                var reader = response.body.getReader();
+
+                function myread(){
+
+                    reader.read().then(({ value, done })=> {
+
+                        if(globalAudio.calling == false)return
+
+                        audioStack.push(value.buffer);
+
+                        while ( audioStack.length) {
+
+                            var obuf       = audioStack.shift();
+                            var buffer;
+                           
+                            if((obuf.byteLength & 1) == 0)
+                            {
+                                if(leftByte != null)
+                                {
+                                    var byteArray = new Uint8Array(obuf.byteLength);
+
+                                    byteArray[0] = leftByte[0]
+                                    byteArray.set(obuf.slice(0,-1), 1)
+                                    buffer = new Int16Array(byteArray);
+                                    leftByte= obuf.slice(-1)
+                                }
+                                else
+                                {
+                                    buffer    = new Int16Array(obuf);
+                                }
+                            }
+                            else
+                            {
+                                if(leftByte != null)
+                                {                  
+                                    var byteArray = new Uint8Array(obuf.byteLength+1);
+                                    
+                                    byteArray[0] = leftByte[0]
+                                    byteArray.set(obuf, 1)
+                                    buffer = new Int16Array(byteArray);
+                                    leftByte = null;
+                                }
+                                else
+                                {                                
+                                    buffer = new Int16Array(obuf.slice(0,-1));
+                                    leftByte = obuf.slice(-1);
+                                }                                
+                            }
+                                
+
+                            var frameCount = buffer.length;                        
+                            
+                            var myArrayBuffer = globalAudio.audioContext.createBuffer(1, frameCount , 48000);
+                            var nowBuffering = myArrayBuffer.getChannelData(0);
+        
+                            for (var i = 0; i < frameCount; i++) {
+                                nowBuffering[i] = buffer[i] / 32768.0;
+                            }               
+                            
+                            var source    = globalAudio.audioContext.createBufferSource();
+                            source.buffer = myArrayBuffer;
+
+                            source.connect(globalAudio.audioContext.destination);
+                            if (nextTime == 0)
+                                nextTime = globalAudio.audioContext.currentTime + 0.01;  /// add 50ms latency to work well across systems - tune this if you like
+                                
+                            source.start(nextTime);
+                            nextTime += source.buffer.duration; // Make the next buffer wait the length of the last buffer before being played
+                        }
+                        myread();
+                    });
+                }
+                myread();
+            })
+        }
+
         function stopCall()
         {
             if (globalAudio.audioInput) {

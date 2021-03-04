@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,12 @@ type messageClient struct {
 	channel chan Message
 	userID  int
 }
+
+var callsList []*Room
+var callsMut sync.Mutex
+
+var messageClients []*messageClient
+var msgClientsMut sync.Mutex
 
 func removeCall(id int) {
 
@@ -49,6 +56,37 @@ func findCall(roomId int) *Room {
 
 	return nil
 }
+func getMsgClient(clientId int) *messageClient {
+
+	msgClientsMut.Lock()
+
+	defer msgClientsMut.Unlock()
+
+	for i := 0; i < len(messageClients); i++ {
+
+		if messageClients[i].userID == clientId {
+			return messageClients[i]
+		}
+	}
+
+	return nil
+}
+
+func removeMsgClient(id int) {
+
+	msgClientsMut.Lock()
+
+	for idx, client := range messageClients {
+
+		if client.userID == id {
+			messageClients[idx] = messageClients[len(messageClients)-1]
+			messageClients = messageClients[:len(messageClients)-1]
+			break
+		}
+	}
+
+	msgClientsMut.Unlock()
+}
 
 func messages(w http.ResponseWriter, r *http.Request) {
 
@@ -77,7 +115,10 @@ func messages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newMessageClient := messageClient{channel: make(chan Message), userID: userid}
+
+	msgClientsMut.Lock()
 	messageClients = append(messageClients, &newMessageClient)
+	msgClientsMut.Unlock()
 
 	w.Write([]byte("event: ping\ndata:ping\n\n"))
 	if f, ok := w.(http.Flusher); ok {
@@ -109,6 +150,8 @@ func messages(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}
+
+	removeMsgClient(userid)
 
 }
 
@@ -152,14 +195,9 @@ func newCall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, msglient := range messageClients {
+	msglient := getMsgClient(Destination)
 
-		if msglient.userID == Destination {
-
-			msglient.channel <- Message{messageType: 1, fromUID: uid}
-		}
-
-	}
+	msglient.channel <- Message{messageType: 1, fromUID: uid}
 }
 
 func rejectCall(w http.ResponseWriter, r *http.Request) {
@@ -194,14 +232,8 @@ func rejectCall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, msglient := range messageClients {
-
-		if msglient.userID == From {
-
-			msglient.channel <- Message{messageType: 2, fromUID: uid}
-		}
-
-	}
+	msglient := getMsgClient(From)
+	msglient.channel <- Message{messageType: 2, fromUID: uid}
 }
 
 func acceptCall(w http.ResponseWriter, r *http.Request) {
@@ -286,28 +318,25 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 
 			for t := range myroom.ticker.C {
 
-				if (len(myroom.clients) > 0) || (len(myroom.inputs) > 0) {
-					var buffers = myroom.mixOutputChannel(t)
-					for _, mybuf := range buffers {
-						myroom.writeClientChannel(mybuf)
-					}
+				if !myroom.isActive() {
+					continue
 				}
+
+				var buffers = myroom.mixOutputChannel(t)
+				for _, mybuf := range buffers {
+					myroom.writeClientChannel(mybuf)
+				}
+
 			}
 		}(newRoom)
 
 		callsList = append(callsList, newRoom)
-
-		callsMut.Unlock()
 	}
 
-	for _, msglient := range messageClients {
+	callsMut.Unlock()
 
-		if msglient.userID == From {
-
-			msglient.channel <- Message{messageType: 3, fromUID: uid, callID: roomId}
-		}
-
-	}
+	msglient := getMsgClient(From)
+	msglient.channel <- Message{messageType: 3, fromUID: uid, callID: roomId}
 
 	w.Write([]byte("{\"roomid\": \"" + strconv.Itoa(roomId) + "\"}"))
 
