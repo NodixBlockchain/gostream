@@ -9,7 +9,7 @@ import (
 
 type Message struct {
 	messageType int
-	fromToken   string
+	fromUID     int
 	callID      int
 }
 
@@ -90,13 +90,13 @@ func messages(w http.ResponseWriter, r *http.Request) {
 		var messageBody string
 
 		if message.messageType == 1 {
-			messageBody = "event: newCall\ndata: {\"from\": \"" + message.fromToken + "\"} \n\n"
+			messageBody = "event: newCall\ndata: {\"from\": " + strconv.Itoa(message.fromUID) + "} \n\n"
 		}
 		if message.messageType == 2 {
-			messageBody = "event: declineCall\ndata: {\"from\": \"" + message.fromToken + "\"} \n\n"
+			messageBody = "event: declineCall\ndata: {\"from\": " + strconv.Itoa(message.fromUID) + "} \n\n"
 		}
 		if message.messageType == 3 {
-			messageBody = "event: acceptedCall\ndata: {\"from\": \"" + message.fromToken + "\", \"roomid\": " + strconv.Itoa(message.callID) + "} \n\n"
+			messageBody = "event: acceptedCall\ndata: {\"from\": " + strconv.Itoa(message.fromUID) + ", \"roomid\": " + strconv.Itoa(message.callID) + "} \n\n"
 		}
 
 		nWrote, err := w.Write([]byte(messageBody))
@@ -113,6 +113,8 @@ func messages(w http.ResponseWriter, r *http.Request) {
 }
 
 func newCall(w http.ResponseWriter, r *http.Request) {
+
+	var uid int
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
@@ -133,7 +135,15 @@ func newCall(w http.ResponseWriter, r *http.Request) {
 
 	if mysite.enable {
 
-		err := mysite.checkAppel(Destination, token)
+		uid, err = mysite.checkCRSF(token)
+		if err != nil {
+			log.Printf("API  mysite.checkCRSF(%s) \r\n", token)
+			log.Println("error ", err)
+			http.Error(w, "mysite.checkCRSF API error", http.StatusForbidden)
+			return
+		}
+
+		err = mysite.checkAppel(Destination, token)
 		if err != nil {
 			log.Printf("API  mysite.checkAppel(%d, %s) \r\n", Destination, token)
 			log.Println("error ", err)
@@ -146,13 +156,15 @@ func newCall(w http.ResponseWriter, r *http.Request) {
 
 		if msglient.userID == Destination {
 
-			msglient.channel <- Message{messageType: 1, fromToken: token}
+			msglient.channel <- Message{messageType: 1, fromUID: uid}
 		}
 
 	}
 }
 
 func rejectCall(w http.ResponseWriter, r *http.Request) {
+
+	var uid int
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
@@ -173,11 +185,11 @@ func rejectCall(w http.ResponseWriter, r *http.Request) {
 
 	if mysite.enable {
 
-		_, err := mysite.checkCRSF(token)
+		uid, err = mysite.checkCRSF(token)
 		if err != nil {
 			log.Printf("API  mysite.checkCRSF(%s) \r\n", token)
 			log.Println("error ", err)
-			http.Error(w, "mysite.checkAppel API error", http.StatusForbidden)
+			http.Error(w, "mysite.checkCRSF API error", http.StatusForbidden)
 			return
 		}
 	}
@@ -186,13 +198,15 @@ func rejectCall(w http.ResponseWriter, r *http.Request) {
 
 		if msglient.userID == From {
 
-			msglient.channel <- Message{messageType: 2, fromToken: token}
+			msglient.channel <- Message{messageType: 2, fromUID: uid}
 		}
 
 	}
 }
 
 func acceptCall(w http.ResponseWriter, r *http.Request) {
+
+	var uid int
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
@@ -211,11 +225,9 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 
 	token := r.Header.Get("CSRFtoken")
 
-	var userid int
-
 	if mysite.enable {
 
-		userid, err = mysite.checkCRSF(token)
+		uid, err = mysite.checkCRSF(token)
 		if err != nil {
 			log.Printf("API  mysite.checkCRSF(%s) \r\n", token)
 			log.Println("error ", err)
@@ -223,7 +235,7 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		err := mysite.checkAppel(From, token)
+		err = mysite.checkAppel(From, token)
 		if err != nil {
 			log.Printf("API  mysite.checkAppel(%d, %s) \r\n", From, token)
 			log.Println("error ", err)
@@ -243,11 +255,11 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 
 	for i := 0; i < len(callsList); i++ {
 
-		if (callsList[i].callFrom == From) && (callsList[i].callTo == userid) {
+		if (callsList[i].callFrom == From) && (callsList[i].callTo == uid) {
 			roomId = callsList[i].id
 			break
 		}
-		if (callsList[i].callFrom == userid) && (callsList[i].callTo == From) {
+		if (callsList[i].callFrom == uid) && (callsList[i].callTo == From) {
 			roomId = callsList[i].id
 			break
 		}
@@ -267,16 +279,18 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 		channels := 1
 		latencyMS := 100
 
-		newRoom = &Room{id: roomId, name: "call " + token + " from " + strconv.Itoa(From) + " ", callFrom: From, callTo: userid, RoomType: "", inputs: make([]*inputChannel, 0, 128), output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
+		newRoom = &Room{id: roomId, name: "call to " + strconv.Itoa(uid) + " from " + strconv.Itoa(From), callFrom: From, callTo: uid, RoomType: "", inputs: make([]*inputChannel, 0, 128), output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
 		newRoom.ticker = time.NewTicker(time.Millisecond * time.Duration(latencyMS))
 
 		go func(myroom *Room) {
 
 			for t := range myroom.ticker.C {
-				//Call the periodic function here.
-				var buffers = myroom.mixOutputChannel(t)
-				for _, mybuf := range buffers {
-					myroom.writeClientChannel(mybuf)
+
+				if (len(myroom.clients) > 0) || (len(myroom.inputs) > 0) {
+					var buffers = myroom.mixOutputChannel(t)
+					for _, mybuf := range buffers {
+						myroom.writeClientChannel(mybuf)
+					}
 				}
 			}
 		}(newRoom)
@@ -290,7 +304,7 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 
 		if msglient.userID == From {
 
-			msglient.channel <- Message{messageType: 3, fromToken: token, callID: roomId}
+			msglient.channel <- Message{messageType: 3, fromUID: uid, callID: roomId}
 		}
 
 	}

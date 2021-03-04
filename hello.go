@@ -1,7 +1,5 @@
 package main
 
-import "C"
-
 import (
 	"fmt"
 	"log"
@@ -17,6 +15,8 @@ var roomList []*Room
 var roomsMut sync.Mutex
 
 var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
+
+//var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
 
 var callsList []*Room
 var callsMut sync.Mutex
@@ -421,6 +421,8 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 /*
+
+var privateKey *ecdsa.PrivateKey
 var tokens map[string]int
 
 var userid = 1
@@ -430,7 +432,19 @@ var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 func RandStringRunes(n int) string {
 	b := make([]rune, n)
 	for i := range b {
-		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+		var rnds []byte
+
+		rnds = make([]byte, 1, 1)
+
+		n, e := rand.Read(rnds)
+		if (n != 1) || (e != nil) {
+			log.Println("error rand")
+			return ""
+		}
+
+		c := int(rnds[0]) % (len(letterRunes) - 1)
+
+		b[i] = letterRunes[c]
 	}
 	return string(b)
 }
@@ -444,8 +458,8 @@ func newCRSF(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("content-type", "application/json")
 	w.Write([]byte("{\"token\" : \"" + newtoken + "\"}"))
-
 }
+
 func crossLogin(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("content-type", "application/json")
@@ -495,6 +509,61 @@ func peuxAppeller(w http.ResponseWriter, r *http.Request) {
 	//w.Write([]byte(r.URL.Path))
 	w.Write([]byte("1"))
 }
+
+func keyXCHG(w http.ResponseWriter, r *http.Request) {
+
+	pkeyb64 := r.FormValue("pubkey")
+	//pubBytes, _ := base64.StdEncoding.DecodeString(pkeyb64)
+	pubBytes, _ := hex.DecodeString(pkeyb64)
+
+	signb64 := r.FormValue("sign")
+	//sign, _ := base64.StdEncoding.DecodeString(signb64)
+	sign, _ := hex.DecodeString(signb64)
+
+	X, Y := elliptic.Unmarshal(privateKey.Curve, pubBytes)
+
+	srcpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
+
+	if srcpub.X != nil {
+		fmt.Printf("srcpub %x\n", srcpub)
+	} else {
+		return
+	}
+
+	var msg []byte = make([]byte, 11, 11)
+
+	for i := 0; i < 11; i++ {
+		msg[i] = byte(i)
+	}
+
+	msg[0] = 1
+
+	res := ecdsa.VerifyASN1(srcpub, msg, sign)
+
+	if !res {
+		fmt.Printf("sign not check \n")
+		return
+	}
+
+	fmt.Printf("sign check \n")
+
+	tokens[pkeyb64] = userid
+	userid++
+
+	var mypub ecdsa.PublicKey = privateKey.PublicKey
+
+	fmt.Printf("mypub 1 %x\r\n", mypub)
+
+	myk := elliptic.Marshal(mypub.Curve, mypub.X, mypub.Y)
+
+	a, b := privateKey.Curve.ScalarMult(srcpub.X, srcpub.Y, privateKey.D.Bytes())
+
+	fmt.Printf("derived key %x %x \r\n", a, b)
+
+	w.Header().Set("content-type", "application/json")
+	w.Write([]byte("{\"pubkey\" : \"" + hex.EncodeToString(myk) + "\"}"))
+
+}
 */
 
 func main() {
@@ -502,12 +571,21 @@ func main() {
 	fmt.Println("goStream starting !")
 
 	/*
+		var err error
+		privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
+		if err != nil {
+			panic(err)
+		}
+
 		tokens = make(map[string]int)
 
 		routerSite := mux.NewRouter()
 
-		routerSite.HandleFunc("/Membres/crossLogin/{token}", crossLogin)
+		routerSite.HandleFunc("/Membres/keyXCHG", keyXCHG)
 		routerSite.HandleFunc("/Membres/newCRSF", newCRSF)
+		routerSite.HandleFunc("/Membres/crossLogin/{token}", crossLogin)
+
 		routerSite.HandleFunc("/Membres/peuxAppeller/{destination:[0-9]+}/{token:[a-zA-Z0-9]+}", peuxAppeller)
 
 		routerSite.HandleFunc("/Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", envoieAudioGroup)

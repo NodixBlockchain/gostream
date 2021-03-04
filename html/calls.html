@@ -7,6 +7,9 @@
     
     <script src="/js/opus-stream-decoder.js"></script>
     <script src="/js/audio.js"></script>
+    <!-- <script src="/js/elliptic.min.js"></script> -->
+    <!-- <script src="/js/browser.js" type="text/javascript"></script> -->
+    <!-- <script src="/js/js-ecdsa.min.js"></script> -->
 </head>
 
 <style>
@@ -19,7 +22,7 @@
 
     <h1 id="moi"></h1>
 
-    <button id="appel" onclick=" call($('#Destination').val(), token); ">appel</button>
+    <button id="appel" onclick=" call($('#Destination').val(), globalAudio.token); ">appel</button>
 
     <input type="text" id="Destination" />
 
@@ -33,7 +36,7 @@
               </button>
             </div>
             <div class="modal-body center">
-                <span id="appel-calling">calling ... </span>
+                <span id="appel-calling"></span>
                 <span id="appel-decline"></span>
             </div>
             <div class="modal-footer center">
@@ -59,8 +62,8 @@
             </div>
             <div class="modal-footer center">
                 <input type="hidden" id="callerID" />
-                <button class="btn btn-primary" id="accept-call-btn" onclick="acceptCall($('#callerID').val() ,token);">accept</button> 
-                <button class="btn btn-primary" id="reject-call-btn" onclick="rejectCall( $('#callerID').val() ,token);">decline</button>
+                <button class="btn btn-primary" id="accept-call-btn" onclick="acceptCall($('#callerID').val() ,globalAudio.token);">accept</button> 
+                <button class="btn btn-primary" id="reject-call-btn" onclick="rejectCall( $('#callerID').val() ,globalAudio.token);">decline</button>
             </div>
           </div>
         </div>
@@ -68,57 +71,6 @@
 
       <script>
           
-        var token= Math.floor(Math.random() * 1000000)
-        var meID = Math.floor(Math.random() * 100)
-
-        function acceptCall(From, token)
-        {
-            $.ajax({
-                url: 'http://'+streamServer+'/acceptCall?From=' + From,
-                type: 'GET',
-                dataType: "json",
-                headers: { 'CSRFToken': token},
-                success: function (result) {  startCall(result.roomid,token); $('#call-infos').html('call established '+result.roomid) },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
-            }); 
-        }   
-        
-        function callAccepted(data)
-        {
-            $.ajax({
-                url: 'http://'+streamServer+'/tokenCheck',
-                type: 'GET',
-                dataType: "text",
-                headers: { 'CSRFToken': data.from},
-                success: function (result) {playCall(data.roomid, token);  $('#accept-call-btn').prop('disabled','disabled'); $('#reject-call-btn').prop('disabled','disabled'); $('#appel-calling').css('display','inline');  $('#appel-calling').html('call established '+data.roomid);   },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
-            }); 
-        }        
-        
-        function rejectCall(From, token)
-        {
-            $.ajax({
-                url: 'http://'+streamServer+'/rejectCall?From=' + From,
-                type: 'GET',
-                dataType: "text",
-                headers: { 'CSRFToken': token},
-                success: function (result) {   $('#accept-call-btn').prop('disabled','disabled'); $('#reject-call-btn').prop('disabled','disabled'); },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
-            }); 
-        }
-
-        function callDeclined(data)
-        {
-            $.ajax({
-                url: 'http://'+streamServer+'/tokenCheck',
-                type: 'GET',
-                dataType: "text",
-                headers: { 'CSRFToken': data.from},
-                success: function (result) { $('#appel-calling').css('display','none'); $('#appel-decline').css('display','inline'); $('#appel-decline').html(result+ ' a decliné l\'appel ');  },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
-            }); 
-        }
-
         function call(DestinationID, token)
         {
             $('#appel-calling').css('display','inline');
@@ -129,37 +81,139 @@
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': token},
-                success: function (result) {  $('#appel-decline').css('display','none');   $('#appelModal1Label').html('Appel '+ DestinationID); $('#appelModal1').modal(); },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
-            }); 
+                success: function (result) {  
 
-        }
-        
-        function called(data) 
+                    $('#appel-decline').css('display','none');   
+                    $('#appelModal1Label').html('Appel '+ DestinationID); 
+                    $('#appelModal1').modal(); 
+                },
+
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/newCall?Destination='+DestinationID+'"'); }
+            }); 
+        }        
+
+        function acceptCall(From, token)
         {
-            $('#call-infos').empty();
             $.ajax({
-                url: 'http://'+streamServer+'/tokenCheck',
+                url: 'http://'+streamServer+'/acceptCall?From=' + From,
+                type: 'GET',
+                dataType: "json",
+                headers: { 'CSRFToken': token},
+                success: function (result) 
+                {  
+                    startCall(result.roomid,token); 
+
+                    $('#call-infos').html('call established '+result.roomid) 
+                },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/acceptCall?From='+From+'"'); }
+            }); 
+        }   
+        
+        function rejectCall(From, token)
+        {
+            $.ajax({
+                url: 'http://'+streamServer+'/rejectCall?From=' + From,
                 type: 'GET',
                 dataType: "text",
-                headers: { 'CSRFToken': data.from},
-                success: function (result) { $('#appel-calling').css('display','none'); $('#callerID').val(result); $('#accept-call-btn').prop('disabled',false); $('#reject-call-btn').prop('disabled',false); $('#appelModalLabel').html('Appel de '+ result); $('#appelModal').modal(); },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
-            });     
+                headers: { 'CSRFToken': token},
+                success: function (result) {   
+
+                    $('#call-infos').html('call from '+From+' rejected ') 
+
+                    $('#accept-call-btn').prop('disabled','disabled'); 
+                    $('#reject-call-btn').prop('disabled','disabled'); 
+                },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/rejectCall?From=' + From+'"'); }
+            }); 
+        }
+  
+        function called(data) 
+        {
+
+            $('#callerID').val(data.from); 
+
+            $('#call-infos').empty();
+
+            $('#appel-decline').css('display','none'); 
+
+            $('#appel-calling').css('display','none'); 
+            $('#appel-calling').empty();
+
+            $('#accept-call-btn').prop('disabled',false); 
+            $('#reject-call-btn').prop('disabled',false); 
+
+
+            $('#appelModalLabel').html('Appel de '+ data.from); 
+            $('#appelModal').modal(); 
+                
+    
+        }
+        
+        function callAccepted(data)
+        {
+            playCall(data.roomid, globalAudio.token);  
+                
+            $('#appel-calling').css('display','inline');  
+            $('#appel-calling').html('call established '+data.roomid);   
+
+            $('#appel-decline').css('display','none'); 
+                
+            $('#accept-call-btn').prop('disabled','disabled'); 
+            $('#reject-call-btn').prop('disabled','disabled'); 
+        }        
+        
+        function callDeclined(data)
+        {
+            $('#appel-calling').css('display','none'); 
+
+            $('#appel-decline').css('display','inline'); 
+            $('#appel-decline').html(data.from+ ' a decliné l\'appel ');
         }
 
-
-        function createEventSource(userID, tok)
+        function createEventSource(token)
         {
             var streamSource = new EventSource('http://'+streamServer+'/messages?CSRFtoken=' + token);
             
             streamSource.addEventListener('newCall',function(e){called(JSON.parse(e.data))});
             streamSource.addEventListener('declineCall',function(e){callDeclined(JSON.parse(e.data))});
             streamSource.addEventListener('acceptedCall',function(e){callAccepted(JSON.parse(e.data))});
-
-            
         }
 
+        /*
+        let ec = new elliptic.ec('p256');
+                
+        var key = ec.genKeyPair();
+        var mypub=key.getPublic('hex')
+
+        var msgHash = [ 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ];
+        var signature = key.sign(msgHash).toDER('hex');        
+
+        console.log("my pub "+mypub)
+        console.log("sign "+signature)
+
+        $.ajax({
+                url: 'http://localhost/Membres/keyXCHG',
+                type: 'POST',
+                data: {sign:signature,pubkey:mypub},
+                dataType: "json",
+                success: function (result) 
+                {  
+                    console.log('serv key') 
+                    console.log(result.pubkey) 
+
+                    var okey = ec.keyFromPublic(result.pubkey,'hex');
+
+                    var AB = okey.getPublic().mul(key.getPrivate())
+
+                    console.log('shared key') 
+                    console.log(AB.getX().toString(16)) 
+                    console.log(AB.getY().toString(16)) 
+                },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
+            }); 
+        */
+
+    
         $.getJSON('http://localhost/Membres/newCRSF', function(result)  {
 
             console.log('token result : ')
@@ -170,7 +224,7 @@
                 type: 'GET',
                 dataType: "text",
                 headers: { 'CSRFToken': result.token},
-                success: function (userID) {  token = result.token; meID = userID; $('#moi').html( 'moi : ' + meID ); createEventSource(parseInt(userID),result.token); },
+                success: function (userID) { $('#moi').html( 'moi : ' + userID ); globalAudio.token = result.token;  createEventSource(result.token); },
                 error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
             });            
 
