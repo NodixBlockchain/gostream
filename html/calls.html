@@ -64,7 +64,7 @@
       </div>    
 
       <script>
-          
+
         function call(DestinationID, token)
         {
             $('#appel-calling').css('display','inline');
@@ -145,7 +145,7 @@
         
         function callAccepted(data)
         {
-            playCallWav(data.roomid, globalAudio.token);  
+            playCall(data.roomid, globalAudio.token);  
                 
             $('#appel-calling').css('display','inline');  
             $('#appel-calling').html('call established '+data.roomid);   

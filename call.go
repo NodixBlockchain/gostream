@@ -120,6 +120,8 @@ func messages(w http.ResponseWriter, r *http.Request) {
 	messageClients = append(messageClients, &newMessageClient)
 	msgClientsMut.Unlock()
 
+	log.Printf("new messages client (%s) \r\n", token)
+
 	w.Write([]byte("event: ping\ndata:ping\n\n"))
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
@@ -148,8 +150,9 @@ func messages(w http.ResponseWriter, r *http.Request) {
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
-
 	}
+
+	log.Printf("lost messages client (%s) \r\n", token)
 
 	removeMsgClient(userid)
 

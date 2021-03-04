@@ -167,7 +167,7 @@
             globalAudio.Fetchcontroller = new AbortController();
             const { signal } = globalAudio.Fetchcontroller;                
 
-            var url= globalAudio.downstreamURL + "?format=wav&roomID=" + roomID; 
+            var url= globalAudio.downCallURL + "?format=wav&roomID=" + roomID; 
 
             fetch(url, {signal,headers : { 'CSRFToken': token}}).then(function(response) {
 
