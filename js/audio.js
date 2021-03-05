@@ -23,9 +23,9 @@
             return buf.buffer;
         }
 
-        function startCall(roomID, token)
+        function startCall(otherID, token)
         {
-            globalAudio.webSocket = new WebSocket(globalAudio.upCallURL + "?token=" + token + "&roomID=" + roomID);
+            globalAudio.webSocket = new WebSocket(globalAudio.upCallURL + "?token=" + token + "&otherID=" + otherID);
             globalAudio.webSocket.binaryType = 'arraybuffer';
 
             if(globalAudio.audioContext == null)
@@ -61,7 +61,7 @@
             });
         }
 
-        function playCall(roomID, token){
+        function playCall(otherID, token){
 
             var audioStack = [];
             var nextTime = 0;
@@ -74,7 +74,7 @@
 
             globalAudio.calling  = true;
     
-            var opusURL = globalAudio.downCallURL + "?roomID=" + roomID; 
+            var opusURL = globalAudio.downCallURL + "?otherID=" + otherID; 
           
             // Fetch a file and decode it.
             fetch(opusURL, {signal, headers : { 'CSRFToken': token}})
@@ -151,7 +151,7 @@
         }
 
 
-        function playCallWav(roomID, token){
+        function playCallWav(otherID, token){
 
             var audioStack = [];
             var nextTime = 0;
@@ -167,7 +167,7 @@
             globalAudio.Fetchcontroller = new AbortController();
             const { signal } = globalAudio.Fetchcontroller;                
 
-            var url= globalAudio.downCallURL + "?format=wav&roomID=" + roomID; 
+            var url= globalAudio.downCallURL + "?format=wav&otherID=" + otherID; 
 
             fetch(url, {signal,headers : { 'CSRFToken': token}}).then(function(response) {
 

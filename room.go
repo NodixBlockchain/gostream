@@ -9,6 +9,7 @@ import (
 type inputChannelBuffer struct {
 	buffer []byte
 	nRead  int
+	time   time.Time
 }
 
 type inputChannel struct {

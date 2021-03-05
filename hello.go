@@ -95,7 +95,6 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var format string
-	var roomID int
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
@@ -105,10 +104,22 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roomID, err = strconv.Atoi(r.FormValue("roomID"))
+	token := r.Header.Get("CSRFtoken")
+	if token == "" {
+		token = r.FormValue("token")
+	}
+
+	userid, err := mysite.checkCRSF(token)
+	if err != nil {
+		w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
+		log.Printf("token %s check error %v ", token, err)
+		return
+	}
+
+	otherID, err := strconv.Atoi(r.FormValue("otherID"))
 
 	if err != nil {
-		http.Error(w, "bad room id", http.StatusInternalServerError)
+		http.Error(w, "bad other id", http.StatusInternalServerError)
 		return
 	}
 
@@ -118,15 +129,10 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 		format = "opus"
 	}
 
-	token := r.Header.Get("CSRFtoken")
-	if token == "" {
-		token = r.FormValue("token")
-	}
+	call := findCall(userid, otherID)
 
-	room := findCall(roomID)
-
-	if room == nil {
-		http.Error(w, "room not found", http.StatusInternalServerError)
+	if call == nil {
+		http.Error(w, "call not found", http.StatusInternalServerError)
 		return
 	}
 
@@ -138,14 +144,24 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 
-	newClientId := room.addClient(w, token)
-	client := room.getClient(newClientId)
+	var clienID int
 
-	log.Printf("new client : %d in room [%d] %s using token '%s'", client.id, room.id, room.name, token)
+	if call.from == userid {
+		clienID = 0
+	} else {
+		clienID = 1
+	}
 
-	defer room.removeClient(newClientId)
+	if call.clients[clienID] != nil {
+		http.Error(w, "user already connected", http.StatusInternalServerError)
+		return
+	}
 
-	e := getEncoder(format, w, room.output)
+	call.clients[clienID] = &roomClient{id: clienID, token: token, channel: make(chan []int16, 1), clientConn: w}
+
+	log.Printf("new client : %d in call [%d-%d] using token '%s'", call.clients[clienID].id, call.from, call.to, token)
+
+	e := getEncoder(format, w, call.output)
 	err = e.writeHeader()
 
 	if err != nil {
@@ -154,12 +170,91 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for {
-		newBuffer := <-client.channel
+		newBuffer := <-call.clients[clienID].channel
 		if e.writeBuffer(newBuffer) != nil {
 			break
 		}
 	}
 
+	call.clients[clienID] = nil
+
+}
+
+// wsHandler implements the Handler Interface
+type wsCallHandler struct{}
+
+func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	token := r.FormValue("token")
+
+	userid, err := mysite.checkCRSF(token)
+	if err != nil {
+		w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
+		log.Printf("token %s check error %v ", token, err)
+		return
+	}
+
+	otherID, err := strconv.Atoi(r.FormValue("otherID"))
+
+	if err != nil {
+		http.Error(w, "no other id", http.StatusInternalServerError)
+		return
+	}
+
+	call := findCall(userid, otherID)
+
+	if call == nil {
+		http.Error(w, "call not found", http.StatusInternalServerError)
+		return
+	}
+	var inputID int
+
+	if call.from == userid {
+		inputID = 0
+	} else {
+		inputID = 1
+	}
+
+	if call.inputs[inputID] != nil {
+		http.Error(w, "user already connected", http.StatusInternalServerError)
+		return
+	}
+
+	call.inputs[inputID] = &inputChannel{id: inputID, token: token, sampleRate: 48000, channels: 1, totalRead: 0, startTime: time.Now()}
+
+	log.Printf("new audio input %d in call [%d-%d] using token '%s'\n", call.inputs[inputID].id, call.from, call.to, token)
+
+	// upgrader is needed to upgrade the HTTP Connection to a websocket Connection
+	upgrader := &websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	}
+
+	//Upgrading HTTP Connection to websocket connection
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+	wsConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("error upgrading %s", err)
+		return
+	}
+
+	for {
+		_, message, err := wsConn.ReadMessage()
+		if err != nil {
+			log.Println("read:", err)
+			break
+		}
+
+		call.inputs[inputID].totalRead += len(message)
+
+		call.inputs[inputID].bufMut.Lock()
+		call.inputs[inputID].buffers = append(call.inputs[inputID].buffers, &inputChannelBuffer{buffer: message, nRead: 0})
+		call.inputs[inputID].bufMut.Unlock()
+	}
+
+	call.inputs[inputID] = nil
 }
 
 func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
@@ -254,86 +349,6 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 }
 
 // wsHandler implements the Handler Interface
-type wsCallHandler struct{}
-
-func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	var roomID int
-	var myInputId int
-
-	roomID, err = strconv.Atoi(r.FormValue("roomID"))
-
-	if err != nil {
-		http.Error(w, "not room id", http.StatusInternalServerError)
-		return
-	}
-
-	token := r.FormValue("token")
-
-	room := findCall(roomID)
-
-	if room == nil {
-		http.Error(w, "room not found", http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("new audio input in %s using token '%s'\n", room.name, token)
-
-	myInputId = room.addInput(48000, 1, token)
-	myinput := room.getInput(myInputId)
-
-	if myinput == nil {
-
-		http.Error(w, "unable to add new input to room", http.StatusInternalServerError)
-		return
-	}
-
-	defer room.removeInput(myInputId)
-
-	// upgrader is needed to upgrade the HTTP Connection to a websocket Connection
-	upgrader := &websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-	}
-
-	//Upgrading HTTP Connection to websocket connection
-	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
-	wsConn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("error upgrading %s", err)
-		return
-	}
-
-	for {
-		_, message, err := wsConn.ReadMessage()
-		if err != nil {
-			log.Println("read:", err)
-			break
-		}
-
-		myinput.totalRead += len(message)
-
-		myinput.bufMut.Lock()
-		myinput.buffers = append(myinput.buffers, &inputChannelBuffer{buffer: message, nRead: 0})
-		myinput.bufMut.Unlock()
-	}
-
-	if mysite.enable {
-
-		err = mysite.newInput(roomID, token, 0)
-		if err != nil {
-			log.Printf("API mysite.newInput(%d,%s,0) \r\n", roomID, token)
-			log.Println("error : ", err)
-
-			http.Error(w, "mysite.newInput API error", http.StatusForbidden)
-			return
-		}
-	}
-
-}
-
-// wsHandler implements the Handler Interface
 type wsHandler struct{}
 
 func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -423,7 +438,6 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 /*
-
 var privateKey *ecdsa.PrivateKey
 var tokens map[string]int
 
@@ -570,9 +584,10 @@ func keyXCHG(w http.ResponseWriter, r *http.Request) {
 func main() {
 
 	fmt.Println("goStream starting !")
-
 	/*
 		var err error
+
+
 		privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 
 		if err != nil {
