@@ -717,6 +717,8 @@ func main() {
 	router.HandleFunc("/joinCall", handleJoinCall)
 
 	router.HandleFunc("/newCall", newCall)
+	router.HandleFunc("/answer", answer)
+	router.HandleFunc("/answer2", answer2)
 	router.HandleFunc("/rejectCall", rejectCall)
 	router.HandleFunc("/acceptCall", acceptCall)
 	router.HandleFunc("/messages", messages)

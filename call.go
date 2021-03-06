@@ -14,14 +14,20 @@ import (
 
 type Message struct {
 	messageType int
-	fromUID     int
-	fromPubKey  *ecdsa.PublicKey
+
+	challenge string
+	answer    string
+
+	fromUID    int
+	fromPubKey *ecdsa.PublicKey
 }
 
 type messageClient struct {
 	channel chan Message
-	userID  int
-	pubKey  *ecdsa.PublicKey
+	w       http.ResponseWriter
+
+	userID int
+	pubKey *ecdsa.PublicKey
 }
 
 type Call struct {
@@ -167,6 +173,23 @@ func removeMsgClientPKey(pkey *ecdsa.PublicKey) {
 	msgClientsMut.Unlock()
 }
 
+func pubKeyFromText(text string, format string) (*ecdsa.PublicKey, error) {
+	var err error
+	var k []byte
+
+	if format == "hex" {
+		k, err = hex.DecodeString(text)
+		if err != nil {
+			return nil, err
+		}
+	}
+	X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, k)
+	if X == nil || Y == nil {
+		return nil, fmt.Errorf("bad point")
+	}
+	return &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}, nil
+}
+
 func messages(w http.ResponseWriter, r *http.Request) {
 
 	var newMessageClient *messageClient
@@ -191,30 +214,16 @@ func messages(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "mysite.checkCRSF API error", http.StatusForbidden)
 			return
 		}
-		newMessageClient = &messageClient{channel: make(chan Message), userID: userid}
-
+		newMessageClient = &messageClient{w: w, channel: make(chan Message), userID: userid, pubKey: nil}
 		log.Printf("new messages client (%s) \r\n", token)
 	} else {
-		pubKey := r.FormValue("PKey")
-
-		k, err := hex.DecodeString(pubKey)
-
+		srcpub, err := pubKeyFromText(r.FormValue("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
 		}
-
-		X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad PKey", http.StatusForbidden)
-			return
-		}
-
-		srcpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
-
-		newMessageClient = &messageClient{channel: make(chan Message), pubKey: srcpub}
-
-		log.Printf("new messages client (%s) \r\n", pubKey)
+		newMessageClient = &messageClient{w: w, channel: make(chan Message), userID: 0, pubKey: srcpub}
+		log.Printf("new messages client (%x) \r\n", srcpub)
 	}
 
 	msgClientsMut.Lock()
@@ -230,23 +239,41 @@ func messages(w http.ResponseWriter, r *http.Request) {
 		message := <-newMessageClient.channel
 
 		var messageBody string
-		var from string
-
-		if message.fromUID != 0 {
-			from = strconv.Itoa(message.fromUID)
-		} else {
-			from = "\"" + hex.EncodeToString(elliptic.MarshalCompressed(message.fromPubKey.Curve, message.fromPubKey.X, message.fromPubKey.Y)) + "\""
-		}
 
 		if message.messageType == 1 {
-			messageBody = "event: newCall\ndata: {\"from\": " + from + "} \n\n"
+			messageBody = "event: newCall\ndata: {"
 		}
 		if message.messageType == 2 {
-			messageBody = "event: declineCall\ndata: {\"from\": " + from + "} \n\n"
+			messageBody = "event: declineCall\ndata: {"
 		}
 		if message.messageType == 3 {
-			messageBody = "event: acceptedCall\ndata: {\"from\": " + from + "} \n\n"
+			messageBody = "event: acceptedCall\ndata: {"
 		}
+		if message.messageType == 4 {
+			messageBody = "event: answer\ndata: {"
+			messageBody += "\"challenge\": \"" + message.challenge + "\","
+			messageBody += "\"answer\": \"" + message.answer + "\","
+		}
+		if message.messageType == 5 {
+			messageBody = "event: answer2\ndata: {"
+			messageBody += "\"challenge\": \"" + message.challenge + "\","
+			messageBody += "\"answer\": \"" + message.answer + "\","
+		}
+
+		if message.fromUID != 0 {
+			messageBody += "\"from\": " + strconv.Itoa(message.fromUID)
+		} else {
+			if message.messageType == 1 {
+				messageBody += "\"challenge\": \"" + message.challenge + "\","
+			}
+			if message.messageType == 2 || message.messageType == 3 {
+				messageBody += "\"answer\": \"" + message.answer + "\","
+			}
+			messageBody += "\"from\": \"" + hex.EncodeToString(elliptic.MarshalCompressed(message.fromPubKey.Curve, message.fromPubKey.X, message.fromPubKey.Y)) + "\""
+
+		}
+
+		messageBody += "} \n\n"
 
 		nWrote, err := w.Write([]byte(messageBody))
 		if (err != nil) || (nWrote < len(messageBody)) {
@@ -262,8 +289,7 @@ func messages(w http.ResponseWriter, r *http.Request) {
 		log.Printf("lost messages client (%d) \r\n", newMessageClient.userID)
 		removeMsgClient(newMessageClient.userID)
 	} else {
-
-		log.Printf("lost messages client (%s) \r\n", newMessageClient.pubKey)
+		log.Printf("lost messages client (%x) \r\n", newMessageClient.pubKey)
 		removeMsgClientPKey(newMessageClient.pubKey)
 	}
 
@@ -274,7 +300,7 @@ func newCall(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "PKey,CSRFToken")
 
-	if r.Method != "GET" {
+	if r.Method != "POST" {
 		w.WriteHeader(200)
 		return
 	}
@@ -309,33 +335,78 @@ func newCall(w http.ResponseWriter, r *http.Request) {
 		}
 		sendMsgClient(destID, Message{messageType: 1, fromUID: uid})
 	} else {
-		k, err := hex.DecodeString(Destination)
+
+		dstpub, err := pubKeyFromText(Destination, "hex")
 		if err != nil {
 			http.Error(w, "bad Destination", http.StatusForbidden)
 			return
 		}
-		X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad Destination", http.StatusForbidden)
-			return
-		}
-		dstpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
 
-		pubKey := r.Header.Get("PKey")
-		k, err = hex.DecodeString(pubKey)
+		srcpub, err := pubKeyFromText(r.Header.Get("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
 		}
-		X, Y = elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad PKey", http.StatusForbidden)
-			return
-		}
-		srcpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
 
-		sendMsgClientPkey(dstpub, Message{messageType: 1, fromUID: 0, fromPubKey: srcpub})
+		Challenge := r.FormValue("challenge")
+
+		sendMsgClientPkey(dstpub, Message{messageType: 1, challenge: Challenge, fromUID: 0, fromPubKey: srcpub})
 	}
+}
+
+func answer(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+	w.Header().Set("Access-Control-Allow-Headers", "PKey")
+
+	if r.Method != "POST" {
+		w.WriteHeader(200)
+		return
+	}
+
+	dstpub, err := pubKeyFromText(r.FormValue("Destination"), "hex")
+	if err != nil {
+		http.Error(w, "bad Destination", http.StatusForbidden)
+		return
+	}
+
+	srcpub, err := pubKeyFromText(r.Header.Get("PKey"), "hex")
+	if err != nil {
+		http.Error(w, "bad PKey", http.StatusForbidden)
+		return
+	}
+
+	Signature := r.FormValue("signature")
+	Challenge := r.FormValue("challenge")
+
+	sendMsgClientPkey(dstpub, Message{messageType: 4, answer: Signature, challenge: Challenge, fromUID: 0, fromPubKey: srcpub})
+
+}
+
+func answer2(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+	w.Header().Set("Access-Control-Allow-Headers", "PKey")
+
+	if r.Method != "POST" {
+		w.WriteHeader(200)
+		return
+	}
+
+	dstpub, err := pubKeyFromText(r.FormValue("Destination"), "hex")
+	if err != nil {
+		http.Error(w, "bad Destination", http.StatusForbidden)
+		return
+	}
+
+	srcpub, err := pubKeyFromText(r.Header.Get("PKey"), "hex")
+	if err != nil {
+		http.Error(w, "bad PKey", http.StatusForbidden)
+		return
+	}
+
+	Signature := r.FormValue("signature")
+	Challenge := r.FormValue("challenge")
+
+	sendMsgClientPkey(dstpub, Message{messageType: 5, answer: Signature, challenge: Challenge, fromUID: 0, fromPubKey: srcpub})
 
 }
 
@@ -344,7 +415,7 @@ func rejectCall(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "PKey,CSRFToken")
 
-	if r.Method != "GET" {
+	if r.Method != "POST" {
 		w.WriteHeader(200)
 		return
 	}
@@ -372,39 +443,21 @@ func rejectCall(w http.ResponseWriter, r *http.Request) {
 		sendMsgClient(FromId, Message{messageType: 2, fromUID: uid})
 	} else {
 
-		k, err := hex.DecodeString(From)
-
+		frompub, err := pubKeyFromText(From, "hex")
 		if err != nil {
 			http.Error(w, "bad From", http.StatusForbidden)
 			return
 		}
 
-		X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad From", http.StatusForbidden)
-			return
-		}
-
-		frompub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
-
-		pubKey := r.Header.Get("PKey")
-
-		k, err = hex.DecodeString(pubKey)
-
+		srcpub, err := pubKeyFromText(r.Header.Get("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
 		}
 
-		X, Y = elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad PKey", http.StatusForbidden)
-			return
-		}
+		Signature := r.FormValue("signature")
 
-		srcpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
-
-		sendMsgClientPkey(frompub, Message{messageType: 2, fromUID: 0, fromPubKey: srcpub})
+		sendMsgClientPkey(frompub, Message{messageType: 2, answer: Signature, fromUID: 0, fromPubKey: srcpub})
 	}
 
 }
@@ -412,12 +465,13 @@ func rejectCall(w http.ResponseWriter, r *http.Request) {
 func acceptCall(w http.ResponseWriter, r *http.Request) {
 	var newCall *Call = nil
 	var FromId, uid int
+	var Signature string
 	var mypub, frompub *ecdsa.PublicKey
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "PKey,CSRFToken")
 
-	if r.Method != "GET" {
+	if r.Method != "POST" {
 		w.WriteHeader(200)
 		return
 	}
@@ -453,37 +507,19 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 		newCall = findCall(FromId, uid)
 
 	} else {
-		k, err := hex.DecodeString(From)
-
+		var err error
+		frompub, err = pubKeyFromText(From, "hex")
 		if err != nil {
 			http.Error(w, "bad From", http.StatusForbidden)
 			return
 		}
-
-		X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad From", http.StatusForbidden)
-			return
-		}
-
-		frompub = &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
-
-		pubKey := r.Header.Get("PKey")
-
-		k, err = hex.DecodeString(pubKey)
-
+		mypub, err = pubKeyFromText(r.Header.Get("PKey"), "hex")
 		if err != nil {
-			http.Error(w, "bad PKey", http.StatusForbidden)
+			http.Error(w, "bad pkey", http.StatusForbidden)
 			return
 		}
 
-		X, Y = elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad PKey", http.StatusForbidden)
-			return
-		}
-
-		mypub = &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
+		Signature = r.FormValue("signature")
 
 		newCall = findCallPKey(frompub, mypub)
 	}
@@ -496,12 +532,12 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 		latencyMS := 100
 		if mysite.enable {
 
-			sendMsgClient(FromId, Message{messageType: 3, fromUID: uid})
+			sendMsgClient(FromId, Message{messageType: 3, fromUID: uid, fromPubKey: nil})
 			newCall = &Call{from: FromId, to: uid, output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
 
 		} else {
 
-			sendMsgClientPkey(frompub, Message{messageType: 3, fromUID: 0, fromPubKey: mypub})
+			sendMsgClientPkey(frompub, Message{messageType: 3, answer: Signature, fromUID: 0, fromPubKey: mypub})
 			newCall = &Call{fromPKEY: frompub, toPKEY: mypub, output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
 
 		}

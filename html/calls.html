@@ -7,13 +7,12 @@
     
     <script src="/js/opus-stream-decoder.js"></script>
     <script src="/js/audio.js"></script>
-    <!-- <script src="/js/elliptic.min.js"></script> -->
-    <!-- <script src="/js/browser.js" type="text/javascript"></script> -->
     <script src="/js/js-ecdsa.min.js"></script>
 </head>
 
 <style>
     #appel-decline { display:none }
+    .key {font-size:12px;}
 </style>
 
 <body>
@@ -56,8 +55,10 @@
             </div>
             <div class="modal-footer center">
                 <input type="hidden" id="callerID" />
-                <button class="btn btn-primary" id="accept-call-btn" onclick="acceptCall( $('#callerID').val()); ">accept</button> 
-                <button class="btn btn-primary" id="reject-call-btn" onclick="rejectCall( $('#callerID').val()); ">decline</button>
+                <input type="hidden" id="callerChallenge" />
+                
+                <button class="btn btn-primary" id="accept-call-btn" onclick="acceptCall( $('#callerID').val(), $('#callerChallenge').val()); ">accept</button> 
+                <button class="btn btn-primary" id="reject-call-btn" onclick="rejectCall( $('#callerID').val(), $('#callerChallenge').val()); ">decline</button>
             </div>
           </div>
         </div>
@@ -65,10 +66,18 @@
 
       <script>
 
+
+        function createChallenge()
+        {
+            return  Math.floor(Math.random()*100000000);
+        }
+
         function call(DestinationID)
         {
             $('#appel-calling').css('display','inline');
             $('#appel-calling').html('calling ...');
+
+            var postData ={Destination:DestinationID}
 
             if(globalAudio.token != null)
             {
@@ -77,17 +86,21 @@
             else
             {
                 hdr = { 'PKey': globalAudio.pubkey};
+
+                globalAudio.Challenge = createChallenge();
+                postData.challenge = globalAudio.Challenge;
             }
 
             $.ajax({
-                url: 'http://'+streamServer+'/newCall?Destination='+DestinationID,
-                type: 'GET',
+                url: 'http://'+streamServer+'/newCall',
+                type: 'POST',
+                data:postData,
                 dataType: "text",
                 headers: hdr,
                 success: function (result) {  
 
                     $('#appel-decline').css('display','none');   
-                    $('#appelModal1Label').html('Appel '+ DestinationID); 
+                    $('#appelModal1Label').html('Appel <span class="key">'+ DestinationID)+'</span>'; 
                     $('#appelModal1').modal(); 
                 },
 
@@ -95,8 +108,10 @@
             }); 
         }        
 
-        function acceptCall(From)
+        function acceptCall(From,challenge)
         {
+            var postData={From:From}
+
             if(globalAudio.token != null)
             {
                 hdr = { 'CSRFToken': globalAudio.token};
@@ -104,26 +119,30 @@
             else
             {
                 hdr = { 'PKey': globalAudio.pubkey};
+                var enc = new TextEncoder(); // always utf-8
+                postData.signature = globalAudio.key.sign(enc.encode(challenge)).toDER('hex');
             }
 
 
             $.ajax({
-                url: 'http://'+streamServer+'/acceptCall?From=' + From,
-                type: 'GET',
+                url: 'http://'+streamServer+'/acceptCall',
+                type: 'POST',
+                data:postData,
                 dataType: "text",
                 headers: hdr,
                 success: function (result) 
                 {  
                    startCall(From); 
                     
-                    $('#call-infos').html('call established '+From) 
+                    $('#call-infos').html('call established <span class="key">'+From+'</span>') 
                 },
                 error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/acceptCall?From='+From+'"'); }
             }); 
         }   
         
-        function rejectCall(From)
+        function rejectCall(From,challenge)
         {
+            var postData = {From:From}
 
             if(globalAudio.token != null)
             {
@@ -132,16 +151,19 @@
             else
             {
                 hdr = { 'PKey': globalAudio.pubkey};
+                var enc = new TextEncoder(); // always utf-8
+                postData.signature = globalAudio.key.sign(enc.encode(challenge)).toDER('hex');
             }
 
             $.ajax({
-                url: 'http://'+streamServer+'/rejectCall?From=' + From,
-                type: 'GET',
+                url: 'http://'+streamServer+'/rejectCall',
+                type: 'POST',
+                data: postData,
                 dataType: "text",
                 headers: hdr,
                 success: function (result) {   
 
-                    $('#call-infos').html('call from '+From+' rejected ') 
+                    $('#call-infos').html('call from <span class="key">'+From+'</span> rejected ') 
 
                     $('#accept-call-btn').prop('disabled','disabled'); 
                     $('#reject-call-btn').prop('disabled','disabled'); 
@@ -149,15 +171,55 @@
                 error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/rejectCall?From=' + From+'"'); }
             }); 
         }
-  
-        function called(data) 
+        
+        function answered(data) {
+
+            var okey = globalAudio.ec.keyFromPublic(data.from,'hex');
+            var enc = new TextEncoder(); // always utf-8
+            if(!okey.verify(enc.encode(globalAudio.Challenge),data.answer)){
+                console.log('verify caller origin failed '+globalAudio.Challenge+' \n')
+                console.log(data.from)
+                console.log(data.answer)
+                $('#appel-calling').html('failed to verify key from <span class="key">'+data.from+'</span>');
+                return;
+            }
+
+            globalAudio.Challenge = createChallenge();
+
+            Signature = globalAudio.key.sign(enc.encode(data.challenge)).toDER('hex')
+
+            $.ajax({
+                url: 'http://'+streamServer+'/answer2',
+                type: 'POST',
+                data: { Destination:data.from, challenge:globalAudio.Challenge,signature : Signature},
+                dataType: "text",
+                headers: { 'PKey': globalAudio.pubkey},
+                success: function (result) {  },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/rejectCall?From=' + From+'"'); }
+            });             
+        }
+
+
+        function answer2(data) 
         {
+            var okey = globalAudio.ec.keyFromPublic(data.from,'hex');
+
+            var enc = new TextEncoder(); // always utf-8
+
+            if(!okey.verify(enc.encode(globalAudio.Challenge),data.answer)){
+                console.log('verify called origin '+globalAudio.Challenge+' \n');
+                console.log(data.from);
+                console.log(data.answer);
+                return;
+            }
 
             $('#callerID').val(data.from); 
+            $('#callerChallenge').val(data.challenge)
 
             $('#call-infos').empty();
 
             $('#appel-decline').css('display','none'); 
+            $('#appel-decline').empty();
 
             $('#appel-calling').css('display','none'); 
             $('#appel-calling').empty();
@@ -166,35 +228,98 @@
             $('#reject-call-btn').prop('disabled',false); 
 
 
-            $('#appelModalLabel').html('Appel de '+ data.from); 
+            $('#appelModalLabel').html('Appel de <span class="key">'+ data.from+'</span>'); 
             $('#appelModal').modal(); 
-                
-    
+        }
+
+        function called(data) 
+        {
+            if(globalAudio.token != null)
+            {
+                $('#callerID').val(data.from); 
+
+                $('#call-infos').empty();
+
+                $('#appel-decline').css('display','none'); 
+
+                $('#appel-calling').css('display','none'); 
+                $('#appel-calling').empty();
+
+                $('#accept-call-btn').prop('disabled',false); 
+                $('#reject-call-btn').prop('disabled',false); 
+
+
+                $('#appelModalLabel').html('Appel de '+ data.from); 
+                $('#appelModal').modal(); 
+                return;                
+            }
+
+            globalAudio.Challenge = createChallenge();
+
+            var enc = new TextEncoder(); // always utf-8
+            Signature = globalAudio.key.sign(enc.encode(data.challenge)).toDER('hex')
+
+            $.ajax({
+                url: 'http://'+streamServer+'/answer',
+                type: 'POST',
+                data: { Destination : data.from, challenge : globalAudio.Challenge, signature : Signature},
+                dataType: "text",
+                headers: { 'PKey': globalAudio.pubkey},
+                success: function (result) { },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/answer?From=' + From+'"'); }
+            }); 
         }
         
         function callAccepted(data)
         {
+            if(globalAudio.token == null)
+            {
+                var okey = globalAudio.ec.keyFromPublic(data.from,'hex');
+                var enc = new TextEncoder(); // always utf-8
+                if(!okey.verify(enc.encode(globalAudio.Challenge),data.answer)){
+                    console.log('verify check failed '+globalAudio.Challenge)
+                    console.log(data.from)
+                    console.log(data.answer)
+                    $('#appel-calling').html('key verification failed <span class="key">'+data.from+'</span>');   
+                    return; 
+                }
+            }
+            
+
+            $('#appel-decline').css('display','none'); 
+            $('#accept-call-btn').prop('disabled','disabled'); 
+            $('#reject-call-btn').prop('disabled','disabled');
+            $('#appel-calling').css('display','inline');  
+
+            $('#appel-calling').html('call established with <span class="key">'+data.from+'</span>');   
+
             if(globalAudio.token != null){
                 playCall(data.from);  
             }else{
                 playCallWav(data.from);  
             }
                 
-            $('#appel-calling').css('display','inline');  
-            $('#appel-calling').html('call established with'+data.from);   
-
-            $('#appel-decline').css('display','none'); 
-                
-            $('#accept-call-btn').prop('disabled','disabled'); 
-            $('#reject-call-btn').prop('disabled','disabled'); 
+         
         }        
         
         function callDeclined(data)
         {
+            if(globalAudio.token == null)
+            {
+                var okey = globalAudio.ec.keyFromPublic(data.from,'hex');
+                var enc = new TextEncoder();
+                if(!okey.verify(enc.encode(globalAudio.Challenge),data.answer)){
+                    console.log('verify check failed '+globalAudio.Challenge)
+                    console.log(data.from)
+                    console.log(data.answer)
+                    $('#appel-calling').html('key verification failed <span class="key">'+data.from+'</span>'); 
+                    return;
+                }
+            }
+                
             $('#appel-calling').css('display','none'); 
-
             $('#appel-decline').css('display','inline'); 
-            $('#appel-decline').html(data.from+ ' a decliné l\'appel ');
+            $('#appel-decline').html('<span class="key">'+data.from+ '</span> a decliné l\'appel ');
         }
 
         function createEventSource()
@@ -204,103 +329,52 @@
             if(globalAudio.token != null){
                 streamSource = new EventSource('http://'+streamServer+'/messages?CSRFtoken=' + globalAudio.token);
             }else{
+
                 streamSource = new EventSource('http://'+streamServer+'/messages?PKey=' + globalAudio.pubkey);
+
+                streamSource.addEventListener('answer',function(e){answered(JSON.parse(e.data))});
+                streamSource.addEventListener('answer2',function(e){answer2(JSON.parse(e.data))});
             }
 
             streamSource.addEventListener('newCall',function(e){called(JSON.parse(e.data))});
             streamSource.addEventListener('declineCall',function(e){callDeclined(JSON.parse(e.data))});
             streamSource.addEventListener('acceptedCall',function(e){callAccepted(JSON.parse(e.data))});
+
         }
 
         $(document).ready(function(){
-            let ec = new elliptic.ec('p256');
 
-            globalAudio.key = ec.genKeyPair();
-
+            globalAudio.ec = new elliptic.ec('p256');
+            globalAudio.key = globalAudio.ec.genKeyPair();
             globalAudio.pubkey = globalAudio.key.getPublic().encodeCompressed('hex')
+            $('#moi').html( 'moi : <span class="key">' + globalAudio.pubkey +'</span>');
 
-
-            $('#moi').html( 'moi : ' + globalAudio.pubkey );
-
-            createEventSource(globalAudio.pubkey);
+            createEventSource();
 
             /*
-            var msgHash = [ 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ];
-            var signature = globalAudio.key.sign(msgHash).toDER('hex');        
+            $.getJSON('http://localhost/Membres/newCRSF', function(result)  {
 
-            $.ajax({
-                url: 'http://localhost/Membres/keyXCHG',
-                type: 'POST',
-                data: {sign:signature,pubkey:globalAudio.pubkey},
-                dataType: "json",
-                success: function (result) 
-                {  
-                    console.log('serv key') 
-                    console.log(result.pubkey) 
+                console.log('token result : ')
+                console.log(result)
 
-                    var okey = ec.keyFromPublic(result.pubkey,'hex');
-
-                    var AB = okey.getPublic().mul(globalAudio.key.getPrivate())
-
-                    console.log('shared key') 
-                    console.log(AB.getX().toString(16)) 
-                    console.log(AB.getY().toString(16)) 
-                },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "keyXCHG"'); }
-            }); 
+                $.ajax({
+                    url: 'http://'+streamServer+'/tokenCheck',
+                    type: 'GET',
+                    dataType: "text",
+                    headers: { 'CSRFToken': result.token},
+                    success: function (userID) 
+                    { 
+                        $('#moi').html( 'moi : ' + userID ); 
+                        globalAudio.token = result.token;  
+                        createEventSource(); 
+                    },
+                    error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
+                });            
+            });
             */
-        
+
         })
 
-        /*
-        var mypub=key.getPublic('hex')
-
-        var msgHash = [ 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ];
-        var signature = key.sign(msgHash).toDER('hex');        
-
-        console.log("my pub "+mypub)
-        console.log("sign "+signature)
-
-        $.ajax({
-                url: 'http://localhost/Membres/keyXCHG',
-                type: 'POST',
-                data: {sign:signature,pubkey:mypub},
-                dataType: "json",
-                success: function (result) 
-                {  
-                    console.log('serv key') 
-                    console.log(result.pubkey) 
-
-                    var okey = ec.keyFromPublic(result.pubkey,'hex');
-
-                    var AB = okey.getPublic().mul(key.getPrivate())
-
-                    console.log('shared key') 
-                    console.log(AB.getX().toString(16)) 
-                    console.log(AB.getY().toString(16)) 
-                },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "tokenCheck"'); }
-            }); 
-      
-
-    
-        $.getJSON('http://localhost/Membres/newCRSF', function(result)  {
-
-            console.log('token result : ')
-            console.log(result)
-
-            $.ajax({
-                url: 'http://'+streamServer+'/tokenCheck',
-                type: 'GET',
-                dataType: "text",
-                headers: { 'CSRFToken': result.token},
-                success: function (userID) { $('#moi').html( 'moi : ' + userID ); globalAudio.token = result.token;  createEventSource(result.token); },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
-            });            
-
-           
-        });
-      */
         </script>
 
 </body>
