@@ -23,9 +23,14 @@
             return buf.buffer;
         }
 
-        function startCall(otherID, token)
+        function startCall(otherID)
         {
-            globalAudio.webSocket = new WebSocket(globalAudio.upCallURL + "?token=" + token + "&otherID=" + otherID);
+
+            if( globalAudio.token != null){
+                globalAudio.webSocket = new WebSocket(globalAudio.upCallURL + "?token=" + globalAudio.token + "&otherID=" + otherID);
+            }else{
+                globalAudio.webSocket = new WebSocket(globalAudio.upCallURL + "?PKey=" + globalAudio.pubkey + "&otherID=" + otherID);
+            }
             globalAudio.webSocket.binaryType = 'arraybuffer';
 
             if(globalAudio.audioContext == null)
@@ -61,7 +66,7 @@
             });
         }
 
-        function playCall(otherID, token){
+        function playCall(otherID){
 
             var audioStack = [];
             var nextTime = 0;
@@ -75,9 +80,19 @@
             globalAudio.calling  = true;
     
             var opusURL = globalAudio.downCallURL + "?otherID=" + otherID; 
+
+            if(globalAudio.token != null)
+            {
+                hdr = { 'CSRFToken': globalAudio.token};
+            }
+            else
+            {
+                hdr = { 'PKey': globalAudio.pubkey};
+            }
+
           
             // Fetch a file and decode it.
-            fetch(opusURL, {signal, headers : { 'CSRFToken': token}})
+            fetch(opusURL, {signal, headers : hdr})
             .then(decodeOpusResponse)
             .then(_ => console.log('decoded '+globalAudio.totalSamplesDecoded+' samples.'))
             .catch(console.error);
@@ -151,7 +166,7 @@
         }
 
 
-        function playCallWav(otherID, token){
+        function playCallWav(otherID){
 
             var audioStack = [];
             var nextTime = 0;
@@ -169,7 +184,17 @@
 
             var url= globalAudio.downCallURL + "?format=wav&otherID=" + otherID; 
 
-            fetch(url, {signal,headers : { 'CSRFToken': token}}).then(function(response) {
+            if(globalAudio.token != null)
+            {
+                hdr = { 'CSRFToken': globalAudio.token};
+            }
+            else
+            {
+                hdr = { 'PKey': globalAudio.pubkey};
+            }
+
+
+            fetch(url, {signal,headers : hdr}).then(function(response) {
 
                 var contentType =''
 

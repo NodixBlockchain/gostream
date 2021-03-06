@@ -1,6 +1,10 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,7 +20,7 @@ var roomsMut sync.Mutex
 
 var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
-//var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
+//var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: false}
 
 func grabRoom(roomId int) *Room {
 
@@ -87,39 +91,74 @@ func tokenCheck(w http.ResponseWriter, r *http.Request) {
 		log.Printf("token %s check error %v ", token, err)
 		return
 	}
-
 	w.Write([]byte(strconv.Itoa(userid)))
+}
+
+func keyXCHG(w http.ResponseWriter, r *http.Request) {
+
+	pkeyb64 := r.FormValue("pubkey")
+	//pubBytes, _ := base64.StdEncoding.DecodeString(pkeyb64)
+	pubBytes, _ := hex.DecodeString(pkeyb64)
+
+	signb64 := r.FormValue("sign")
+	//sign, _ := base64.StdEncoding.DecodeString(signb64)
+	sign, _ := hex.DecodeString(signb64)
+
+	X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, pubBytes)
+
+	srcpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
+
+	if srcpub.X != nil {
+		fmt.Printf("srcpub %x\n", srcpub)
+	} else {
+		return
+	}
+
+	var msg []byte = make([]byte, 11, 11)
+
+	for i := 0; i < 11; i++ {
+		msg[i] = byte(i)
+	}
+
+	msg[0] = 1
+
+	res := ecdsa.VerifyASN1(srcpub, msg, sign)
+
+	if !res {
+		fmt.Printf("sign not check \n")
+		return
+	}
+
+	fmt.Printf("sign check \n")
+
+	var mypub ecdsa.PublicKey = privateKey.PublicKey
+
+	fmt.Printf("mypub 1 %x\r\n", mypub)
+
+	myk := elliptic.Marshal(mypub.Curve, mypub.X, mypub.Y)
+
+	a, b := privateKey.Curve.ScalarMult(srcpub.X, srcpub.Y, privateKey.D.Bytes())
+
+	fmt.Printf("derived key %x %x \r\n", a, b)
+
+	w.Header().Set("content-type", "application/json")
+	w.Write([]byte("{\"pubkey\" : \"" + hex.EncodeToString(myk) + "\"}"))
 
 }
 
 func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var format string
+	var otherSTR string
+	var call *Call
+	var clientID int
+	var token string
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
-	w.Header().Set("Access-Control-Allow-Headers", "CSRFToken")
+	w.Header().Set("Access-Control-Allow-Headers", "PKey,CSRFToken")
 
 	if r.Method != "GET" {
 		w.WriteHeader(200)
-		return
-	}
-
-	token := r.Header.Get("CSRFtoken")
-	if token == "" {
-		token = r.FormValue("token")
-	}
-
-	userid, err := mysite.checkCRSF(token)
-	if err != nil {
-		w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
-		log.Printf("token %s check error %v ", token, err)
-		return
-	}
-
-	otherID, err := strconv.Atoi(r.FormValue("otherID"))
-
-	if err != nil {
-		http.Error(w, "bad other id", http.StatusInternalServerError)
 		return
 	}
 
@@ -129,37 +168,106 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 		format = "opus"
 	}
 
-	call := findCall(userid, otherID)
-
-	if call == nil {
-		http.Error(w, "call not found", http.StatusInternalServerError)
-		return
-	}
-
 	if format == "wav" {
 		w.Header().Set("content-type", "audio/wav")
 	} else {
 		w.Header().Set("content-type", "audio/ogg")
 	}
 
-	w.WriteHeader(200)
+	otherSTR = r.FormValue("otherID")
 
-	var clienID int
+	if mysite.enable {
 
-	if call.from == userid {
-		clienID = 0
+		otherID, err := strconv.Atoi(otherSTR)
+		if err != nil {
+			http.Error(w, "bad other id", http.StatusInternalServerError)
+			return
+		}
+
+		token = r.Header.Get("CSRFtoken")
+		if token == "" {
+			token = r.FormValue("token")
+		}
+
+		userid, err := mysite.checkCRSF(token)
+		if err != nil {
+			w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
+			log.Printf("token %s check error %v ", token, err)
+			return
+		}
+		call = findCall(userid, otherID)
+
+		if call == nil {
+			http.Error(w, "call not found", http.StatusInternalServerError)
+			return
+		}
+
+		if call.from == userid {
+			clientID = 0
+		} else {
+			clientID = 1
+		}
+
+		log.Printf("new client : %d in call [%d-%d] using token '%s'", clientID, userid, otherID, token)
+
 	} else {
-		clienID = 1
+
+		k, err := hex.DecodeString(otherSTR)
+
+		if err != nil {
+			http.Error(w, "bad From", http.StatusForbidden)
+			return
+		}
+
+		X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, k)
+		if X == nil || Y == nil {
+			http.Error(w, "bad From", http.StatusForbidden)
+			return
+		}
+
+		otherpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
+
+		pubKey := r.Header.Get("PKey")
+
+		k, err = hex.DecodeString(pubKey)
+
+		if err != nil {
+			http.Error(w, "bad PKey", http.StatusForbidden)
+			return
+		}
+
+		X, Y = elliptic.UnmarshalCompressed(privateKey.Curve, k)
+		if X == nil || Y == nil {
+			http.Error(w, "bad PKey", http.StatusForbidden)
+			return
+		}
+
+		mypub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
+
+		call = findCallPKey(mypub, otherpub)
+
+		if call == nil {
+			http.Error(w, "call not found", http.StatusInternalServerError)
+			return
+		}
+
+		if call.fromPKEY.Equal(mypub) {
+			clientID = 0
+		} else {
+			clientID = 1
+		}
+
+		log.Printf("new client : %d in call [%s-%s]", clientID, pubKey, otherSTR)
 	}
 
-	if call.clients[clienID] != nil {
+	if call.clients[clientID] != nil {
 		http.Error(w, "user already connected", http.StatusInternalServerError)
 		return
 	}
 
-	call.clients[clienID] = &roomClient{id: clienID, token: token, channel: make(chan []int16, 1), clientConn: w}
+	w.WriteHeader(200)
 
-	log.Printf("new client : %d in call [%d-%d] using token '%s'", call.clients[clienID].id, call.from, call.to, token)
+	call.clients[clientID] = &roomClient{id: clientID, token: token, channel: make(chan []int16, 1), clientConn: w}
 
 	e := getEncoder(format, w, call.output)
 	err = e.writeHeader()
@@ -170,13 +278,13 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for {
-		newBuffer := <-call.clients[clienID].channel
+		newBuffer := <-call.clients[clientID].channel
 		if e.writeBuffer(newBuffer) != nil {
 			break
 		}
 	}
 
-	call.clients[clienID] = nil
+	call.clients[clientID] = nil
 
 }
 
@@ -184,37 +292,79 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 type wsCallHandler struct{}
 
 func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	token := r.FormValue("token")
-
-	userid, err := mysite.checkCRSF(token)
-	if err != nil {
-		w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
-		log.Printf("token %s check error %v ", token, err)
-		return
-	}
-
-	otherID, err := strconv.Atoi(r.FormValue("otherID"))
-
-	if err != nil {
-		http.Error(w, "no other id", http.StatusInternalServerError)
-		return
-	}
-
-	call := findCall(userid, otherID)
-
-	if call == nil {
-		http.Error(w, "call not found", http.StatusInternalServerError)
-		return
-	}
 	var inputID int
+	var err error
+	var token string
+	var call *Call
 
-	if call.from == userid {
-		inputID = 0
+	if mysite.enable {
+
+		token = r.FormValue("token")
+
+		otherID, err := strconv.Atoi(r.FormValue("otherID"))
+		if err != nil {
+			http.Error(w, "no other id", http.StatusInternalServerError)
+			return
+		}
+
+		userid, err := mysite.checkCRSF(token)
+		if err != nil {
+			w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
+			log.Printf("token %s check error %v ", token, err)
+			return
+		}
+
+		call = findCall(userid, otherID)
+
+		if call == nil {
+			http.Error(w, "call not found", http.StatusInternalServerError)
+			return
+		}
+
+		if call.from == userid {
+			inputID = 0
+		} else {
+			inputID = 1
+		}
+
+		log.Printf("new audio input %d in call [%d-%d] using token '%s'\n", inputID, call.from, call.to, token)
+
 	} else {
-		inputID = 1
+		otherSTR := r.FormValue("otherID")
+		k, err := hex.DecodeString(otherSTR)
+		if err != nil {
+			http.Error(w, "bad From", http.StatusForbidden)
+			return
+		}
+		X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, k)
+		if X == nil || Y == nil {
+			http.Error(w, "bad From", http.StatusForbidden)
+			return
+		}
+		otherpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
+
+		pubKey := r.FormValue("PKey")
+		k, err = hex.DecodeString(pubKey)
+		if err != nil {
+			http.Error(w, "bad PKey", http.StatusForbidden)
+			return
+		}
+		X, Y = elliptic.UnmarshalCompressed(privateKey.Curve, k)
+		if X == nil || Y == nil {
+			http.Error(w, "bad PKey", http.StatusForbidden)
+			return
+		}
+		mypub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
+
+		call = findCallPKey(mypub, otherpub)
+		if call.fromPKEY.Equal(mypub) {
+			inputID = 0
+		} else {
+			inputID = 1
+		}
+
+		log.Printf("new audio input %d in call [%s-%s] \n", inputID, otherSTR, pubKey)
+
 	}
 
 	if call.inputs[inputID] != nil {
@@ -223,8 +373,6 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	call.inputs[inputID] = &inputChannel{id: inputID, token: token, sampleRate: 48000, channels: 1, totalRead: 0, startTime: time.Now()}
-
-	log.Printf("new audio input %d in call [%d-%d] using token '%s'\n", call.inputs[inputID].id, call.from, call.to, token)
 
 	// upgrader is needed to upgrade the HTTP Connection to a websocket Connection
 	upgrader := &websocket.Upgrader{
@@ -437,8 +585,9 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 }
 
-/*
 var privateKey *ecdsa.PrivateKey
+
+/*
 var tokens map[string]int
 
 var userid = 1
@@ -525,75 +674,20 @@ func peuxAppeller(w http.ResponseWriter, r *http.Request) {
 	//w.Write([]byte(r.URL.Path))
 	w.Write([]byte("1"))
 }
-
-func keyXCHG(w http.ResponseWriter, r *http.Request) {
-
-	pkeyb64 := r.FormValue("pubkey")
-	//pubBytes, _ := base64.StdEncoding.DecodeString(pkeyb64)
-	pubBytes, _ := hex.DecodeString(pkeyb64)
-
-	signb64 := r.FormValue("sign")
-	//sign, _ := base64.StdEncoding.DecodeString(signb64)
-	sign, _ := hex.DecodeString(signb64)
-
-	X, Y := elliptic.Unmarshal(privateKey.Curve, pubBytes)
-
-	srcpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
-
-	if srcpub.X != nil {
-		fmt.Printf("srcpub %x\n", srcpub)
-	} else {
-		return
-	}
-
-	var msg []byte = make([]byte, 11, 11)
-
-	for i := 0; i < 11; i++ {
-		msg[i] = byte(i)
-	}
-
-	msg[0] = 1
-
-	res := ecdsa.VerifyASN1(srcpub, msg, sign)
-
-	if !res {
-		fmt.Printf("sign not check \n")
-		return
-	}
-
-	fmt.Printf("sign check \n")
-
-	tokens[pkeyb64] = userid
-	userid++
-
-	var mypub ecdsa.PublicKey = privateKey.PublicKey
-
-	fmt.Printf("mypub 1 %x\r\n", mypub)
-
-	myk := elliptic.Marshal(mypub.Curve, mypub.X, mypub.Y)
-
-	a, b := privateKey.Curve.ScalarMult(srcpub.X, srcpub.Y, privateKey.D.Bytes())
-
-	fmt.Printf("derived key %x %x \r\n", a, b)
-
-	w.Header().Set("content-type", "application/json")
-	w.Write([]byte("{\"pubkey\" : \"" + hex.EncodeToString(myk) + "\"}"))
-}
 */
-
 func main() {
 
 	fmt.Println("goStream starting !")
+
+	var err error
+
+	privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
+	if err != nil {
+		panic(err)
+	}
+
 	/*
-		var err error
-
-
-		privateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-
-		if err != nil {
-			panic(err)
-		}
-
 		tokens = make(map[string]int)
 
 		routerSite := mux.NewRouter()
@@ -628,6 +722,7 @@ func main() {
 	router.HandleFunc("/messages", messages)
 
 	router.HandleFunc("/tokenCheck", tokenCheck)
+	router.HandleFunc("/keyXCHG", keyXCHG)
 
 	router.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
 	router.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
