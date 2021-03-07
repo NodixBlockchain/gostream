@@ -169,7 +169,12 @@
                 headers: hdr,
                 success: function (result) 
                 {  
-                    startCall(From); 
+                    if(globalAudio.token != null){
+                        playCall(From);  
+                    }else{
+                        playCallWav(From);  
+                    }                    
+                    
                     
                     $('#accept-call-btn').prop('disabled','disabled'); 
                     $('#reject-call-btn').prop('disabled','disabled'); 
@@ -344,11 +349,7 @@
 
             $('#appel-calling').html('call established with <span class="key">'+data.from+'</span>');   
 
-            if(globalAudio.token != null){
-                playCall(data.from);  
-            }else{
-                playCallWav(data.from);  
-            }
+            startCall(data.from); 
                 
          
         }        
