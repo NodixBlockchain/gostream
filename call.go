@@ -3,6 +3,8 @@ package main
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/md5"
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -51,6 +53,11 @@ var callsMut sync.Mutex
 
 var messageClients []*messageClient
 var msgClientsMut sync.Mutex
+
+var challenges map[string]string
+var clientChallenges map[string]string
+
+var challengesMut sync.Mutex
 
 func removeCall(from int, to int) {
 
@@ -171,6 +178,38 @@ func removeMsgClientPKey(pkey *ecdsa.PublicKey) {
 	}
 
 	msgClientsMut.Unlock()
+}
+
+var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func RandStringRunes(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		var rnds []byte
+
+		rnds = make([]byte, 1, 1)
+
+		n, e := rand.Read(rnds)
+		if (n != 1) || (e != nil) {
+			log.Println("error rand")
+			return ""
+		}
+
+		c := int(rnds[0]) % (len(letterRunes) - 1)
+
+		b[i] = letterRunes[c]
+	}
+	return string(b)
+}
+
+func hashPubkey(srcpub *ecdsa.PublicKey) string {
+	h := md5.New()
+	h.Write(elliptic.Marshal(privateKey.Curve, srcpub.X, srcpub.Y))
+	hh := h.Sum(nil)
+	myh := make([]byte, hex.EncodedLen(len(hh)))
+	hex.Encode(myh, hh)
+
+	return string(myh)
 }
 
 func pubKeyFromText(text string, format string) (*ecdsa.PublicKey, error) {
@@ -319,6 +358,31 @@ func messages(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func getCallTicket(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+	w.Header().Set("Access-Control-Allow-Headers", "PKey,CSRFToken")
+
+	if r.Method != "GET" {
+		w.WriteHeader(200)
+		return
+	}
+
+	srcpub, err := pubKeyFromText(r.Header.Get("PKey"), "hex")
+	if err != nil {
+		http.Error(w, "bad PKey", http.StatusForbidden)
+		return
+	}
+	Challenge := RandStringRunes(8)
+
+	challengesMut.Lock()
+	challenges[string(hashPubkey(srcpub))] = Challenge
+	challengesMut.Unlock()
+
+	w.Write([]byte(Challenge))
+
+}
+
 func newCall(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
@@ -360,19 +424,33 @@ func newCall(w http.ResponseWriter, r *http.Request) {
 		sendMsgClient(destID, Message{messageType: 1, fromUID: uid})
 	} else {
 
-		dstpub, err := pubKeyFromText(Destination, "hex")
-		if err != nil {
-			http.Error(w, "bad Destination", http.StatusForbidden)
-			return
-		}
-
 		srcpub, err := pubKeyFromText(r.Header.Get("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
 		}
 
+		Signature, err := hex.DecodeString(r.FormValue("signature"))
+
+		challengesMut.Lock()
+		res := ecdsa.VerifyASN1(srcpub, []byte(challenges[hashPubkey(srcpub)]), Signature)
+		challengesMut.Unlock()
+		if !res {
+			http.Error(w, "bad signature", http.StatusForbidden)
+			return
+		}
+
+		dstpub, err := pubKeyFromText(Destination, "hex")
+		if err != nil {
+			http.Error(w, "bad Destination", http.StatusForbidden)
+			return
+		}
+
 		Challenge := r.FormValue("challenge")
+
+		challengesMut.Lock()
+		clientChallenges[hashPubkey(dstpub)] = Challenge
+		challengesMut.Unlock()
 
 		sendMsgClientPkey(dstpub, Message{messageType: 1, challenge: Challenge, fromUID: 0, fromPubKey: srcpub})
 	}
@@ -400,7 +478,26 @@ func answer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	Signature := r.FormValue("signature")
+
+	Sign, err := hex.DecodeString(Signature)
+	if err != nil {
+		http.Error(w, "bad signature format", http.StatusForbidden)
+		return
+	}
+
+	challengesMut.Lock()
+	res := ecdsa.VerifyASN1(srcpub, []byte(clientChallenges[hashPubkey(srcpub)]), Sign)
+	challengesMut.Unlock()
+	if !res {
+		http.Error(w, "bad answer signature", http.StatusForbidden)
+		return
+	}
+
 	Challenge := r.FormValue("challenge")
+
+	challengesMut.Lock()
+	clientChallenges[hashPubkey(dstpub)] = Challenge
+	challengesMut.Unlock()
 
 	sendMsgClientPkey(dstpub, Message{messageType: 4, answer: Signature, challenge: Challenge, fromUID: 0, fromPubKey: srcpub})
 
@@ -428,7 +525,26 @@ func answer2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	Signature := r.FormValue("signature")
+
+	Sign, err := hex.DecodeString(Signature)
+	if err != nil {
+		http.Error(w, "bad signature format", http.StatusForbidden)
+		return
+	}
+
+	challengesMut.Lock()
+	res := ecdsa.VerifyASN1(srcpub, []byte(clientChallenges[hashPubkey(srcpub)]), Sign)
+	challengesMut.Unlock()
+	if !res {
+		http.Error(w, "bad answer2 signature", http.StatusForbidden)
+		return
+	}
+
 	Challenge := r.FormValue("challenge")
+
+	challengesMut.Lock()
+	clientChallenges[hashPubkey(dstpub)] = Challenge
+	challengesMut.Unlock()
 
 	sendMsgClientPkey(dstpub, Message{messageType: 5, answer: Signature, challenge: Challenge, fromUID: 0, fromPubKey: srcpub})
 
@@ -480,6 +596,20 @@ func rejectCall(w http.ResponseWriter, r *http.Request) {
 		}
 
 		Signature := r.FormValue("signature")
+
+		Sign, err := hex.DecodeString(Signature)
+		if err != nil {
+			http.Error(w, "bad signature format", http.StatusForbidden)
+			return
+		}
+
+		challengesMut.Lock()
+		res := ecdsa.VerifyASN1(srcpub, []byte(clientChallenges[hashPubkey(srcpub)]), Sign)
+		challengesMut.Unlock()
+		if !res {
+			http.Error(w, "bad rejectCall signature", http.StatusForbidden)
+			return
+		}
 
 		sendMsgClientPkey(frompub, Message{messageType: 2, answer: Signature, fromUID: 0, fromPubKey: srcpub})
 	}
@@ -544,6 +674,20 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 		}
 
 		Signature = r.FormValue("signature")
+
+		Sign, err := hex.DecodeString(Signature)
+		if err != nil {
+			http.Error(w, "bad signature format", http.StatusForbidden)
+			return
+		}
+
+		challengesMut.Lock()
+		res := ecdsa.VerifyASN1(mypub, []byte(clientChallenges[hashPubkey(mypub)]), Sign)
+		challengesMut.Unlock()
+		if !res {
+			http.Error(w, "bad acceptcall signature", http.StatusForbidden)
+			return
+		}
 
 		newCall = findCallPKey(frompub, mypub)
 	}

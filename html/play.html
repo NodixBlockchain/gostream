@@ -2,6 +2,21 @@
 <head>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" ></script>
     <script src="http://localhost:8080/js/opus-stream-decoder.js"></script>
+
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" ></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+   <style>
+
+       
+       .msg-action{
+        top:-48px;
+        padding:0px;
+        margin: 0px;
+
+       }
+   </style>
 </head>
 <body>
 
@@ -226,23 +241,159 @@
         <option value="wav">wav</option>
     </select>
     <button id="play" onclick="startPlaying(roomID,token);" >play</button>
+    <div id="liste-messages"></div>
 
     <script>
-                updateMembres({
-            "Createur": {
-                "id": "1",
-                "mail": "zorkanethegame@gmail.com",
-                "password": "f876a49f19cf2836cba9af5d6afcb50d",
-                "username": "SuperKing174",
-                "status": null,
-                "derniereActivite": "2021-03-02 13:02:10",
-                "ecouteAudio": "0",
-                "envoiAudio": "0"
-            },
-            "Membres": []
-        });
+ function updateMessages(messages)
+ {
+  const Now = new Date();
+
+    //var table = document.createElement('table');
+    var container = document.createElement('div');
+
+    container.className='container';
+
+ 
+    for(var i =0; i<messages.length; i++){
+
+      var header = document.createElement('div');
+      header.className='row'
+
+
+      var td1 = document.createElement('div');
+        td1.className = 'col-md-2 message-username'
+        td1.innerHTML = messages[i].username ;
+        header.append(td1);
+        
+    
+      var td2 = document.createElement('div');
+
+        const  date2 = new Date(messages[i].Heure);
+        const heure = date2.getHours() + ' : ' + date2.getMinutes() +' : ' + date2.getSeconds();
+        var mydate;
+
+        const diffTime = Math.abs(date2 - Now);
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+        if(diffDays<1)
+        {
+          mydate = "aujourd'hui à " + heure;
+        }
+        else if(diffDays<2)
+        {
+          mydate = 'hier à ' + heure;
+        }
+        else if(diffDays<3)
+        {
+          mydate = 'avant hier à ' + heure;
+        }
+        else
+        {
+          mydate = messages[i].Heure;
+        }
+
+        td2.className = 'col-md-2 text-left message-date';
+        td2.innerHTML = mydate;
+
+        header.append(td2);
+
+      var td3 = document.createElement('div');
+      td3.className='col text-right message-toolbox';
+        
+        var toolsBut = document.createElement('button');
+        toolsBut.className ='btn msg-action'
+        toolsBut.setAttribute('msgID', messages[i].id);
+
+        if( messages[i].Membre == 1 ) 
+        {
+            toolsBut.setAttribute('mine', 1);
+        }
+
+        toolsBut.setAttribute('data-toggle', "popover");
+        toolsBut.setAttribute('data-placement', "left");
+        toolsBut.innerHTML = '...'
+
+      td3.append(toolsBut);
+      header.append(td3);
+      container.append(header)            
+
+      var message = document.createElement('div');
+      message.className='row'
+
+      var td4 = document.createElement('td');
+      
+        var messageText = messages[i].Text;
+
+        td4.setAttribute('colspan',"3")
+        td4.className = 'col message-message text-left';
+        td4.innerHTML = messageText;
+
+      message.append(td4);        
+
+      container.append(message)         
+    }
+
+    //table.append(tbody)
+
+    $('#liste-messages').html(container);
+
+    $('.msg-action').popover({html:true,placement:'bottom',content: actionsMessagesPopover});
+  }
+
+  
+  function actionsMessagesPopover()
+  {
+        var msgID = $(this).attr('msgID');
+        var mine = $(this).attr('mine');
+
+        var div = document.createElement("div");
+        div.className = 'text-center';
+
+            
+        var butEpingle = document.createElement("button");
+        butEpingle.onclick= function () 
+        { 
+          if (confirm('Épingler le message ?'))
+          { 
+              $.get('/Groupes/EpingleMessage/'+msgID, function() { alert('message epinglé'); }).fail( function() { alert('erreur epinglage'); } );
+          }
+        }
+
+        butEpingle.innerHTML = 'épingler';
+        div.append(butEpingle);
+        div.append( document.createElement("br"));
+
+        if(mine == 1)
+        {
+          var butEdit = document.createElement("button");
+          butEdit.onclick= function () { if (confirm('Modifier le message ?')){ alert('pas encore fait'); } }
+          butEdit.innerHTML = 'Modifier';  
+          div.append(butEdit);
+          div.append( document.createElement("br"));
+
+
+          var butSupprime = document.createElement("button");
+          butSupprime.onclick= function () 
+          { 
+            if (confirm('Supprimer le message ?'))
+            { 
+              $.get('/Groupes/SupprimeMessage/'+msgID, function() { alert('message supprimé'); } ).fail( function() { alert('erreur suppression'); } );
+            }  
+          }
+          butSupprime.innerHTML = 'Supprimer';  
+          div.append(butSupprime);
+          div.append( document.createElement("br"));
+        }
+       
+
+        return div;
+   }       
+    
+
+
+      
    
-    </script>
+        updateMessages([{id:1, username:'toto', Heure: 0,Text:'hello'},{id:2, username:'tutu', Heure: 1,Text:'world'}])
     </script>
 
 </body>

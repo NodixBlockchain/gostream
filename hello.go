@@ -20,7 +20,7 @@ var roomsMut sync.Mutex
 
 var privateKey *ecdsa.PrivateKey
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: false}
 
 //var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: false}
 
@@ -559,38 +559,7 @@ var tokens map[string]int
 
 var userid = 1
 
-var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
-func RandStringRunes(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		var rnds []byte
-
-		rnds = make([]byte, 1, 1)
-
-		n, e := rand.Read(rnds)
-		if (n != 1) || (e != nil) {
-			log.Println("error rand")
-			return ""
-		}
-
-		c := int(rnds[0]) % (len(letterRunes) - 1)
-
-		b[i] = letterRunes[c]
-	}
-	return string(b)
-}
-
-func newCRSF(w http.ResponseWriter, r *http.Request) {
-
-	newtoken := RandStringRunes(12)
-
-	tokens[newtoken] = userid
-	userid++
-
-	w.Header().Set("content-type", "application/json")
-	w.Write([]byte("{\"token\" : \"" + newtoken + "\"}"))
-}
 
 func crossLogin(w http.ResponseWriter, r *http.Request) {
 
@@ -654,6 +623,9 @@ func main() {
 		panic(err)
 	}
 
+	challenges = make(map[string]string)
+	clientChallenges = make(map[string]string)
+
 	/*
 		tokens = make(map[string]int)
 
@@ -683,6 +655,7 @@ func main() {
 	router.HandleFunc("/joinRoom", handleJoinRoom)
 	router.HandleFunc("/joinCall", handleJoinCall)
 
+	router.HandleFunc("/getCallTicket", getCallTicket)
 	router.HandleFunc("/newCall", newCall)
 	router.HandleFunc("/answer", answer)
 	router.HandleFunc("/answer2", answer2)

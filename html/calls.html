@@ -86,9 +86,11 @@
             else
             {
                 hdr = { 'PKey': globalAudio.pubkey};
+                var enc = new TextEncoder(); // always utf-8
 
                 globalAudio.Challenge = createChallenge();
                 postData.challenge = globalAudio.Challenge;
+                postData.signature = globalAudio.key.sign(enc.encode(globalAudio.serverChallenge)).toDER('hex');
             }
 
             $.ajax({
@@ -362,9 +364,29 @@
 
         $(document).ready(function(){
 
+
+
             globalAudio.ec = new elliptic.ec('p256');
             globalAudio.key = globalAudio.ec.genKeyPair();
             globalAudio.pubkey = globalAudio.key.getPublic().encodeCompressed('hex')
+
+
+            $.ajax({
+                    url: 'http://'+streamServer+'/getCallTicket',
+                    type: 'GET',
+                    dataType: "text",
+                    headers: { 'PKey': globalAudio.pubkey},
+                    success: function (challenge) 
+                    { 
+                        globalAudio.serverChallenge = challenge;
+                        createEventSource(); 
+                    },
+                    error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
+                });       
+
+       
+            
+
             $('#moi').html( 'moi : <span class="key">' + globalAudio.pubkey +'</span>');
 
             createEventSource();
