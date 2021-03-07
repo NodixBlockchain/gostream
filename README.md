@@ -37,15 +37,16 @@ all server request using the site API must add the HTTP header "CSRFToken": toke
 ### P2P calls
 
 * /newCall [Destination : IDuser] 
-* /upCall [Destination : IDuser]   <= raw audio data
-* /joinCall [Destination : IDuser] => wav|ogg|opus audio data
-
 * /rejectCall [Destination : IDuser] 
 * /acceptCall [Destination : IDuser] 
 
+* /upCall [Destination : IDuser]   <= raw audio data
+* /joinCall [Destination : IDuser, format] => wav|ogg|opus audio data
+
+
 ### chat room
-* /upRoom [RoomID : ID] 
-* /joinRoom [RoomID : ID] 
+* /upRoom [RoomID : ID]  <= raw audio data
+* /joinRoom [RoomID : ID, format] => wav|ogg|opus audio data
 
 # Without side site
 
