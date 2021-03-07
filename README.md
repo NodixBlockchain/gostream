@@ -26,9 +26,9 @@ The server implement the message source at address
 
 /messages?CSRFtoken=token;
 
-*newCall => {from: userid}
-*declineCall => {from: userid}
-*acceptedCall => {from: userid}
+* newCall => {from: userid}
+* declineCall => {from: userid}
+* acceptedCall => {from: userid}
 
 # Without side site
 
@@ -38,8 +38,8 @@ if enable is false, the identification use asymetrique cryptography to identify 
 
 /messages?PKey=public key
 
-*newCall => {from: public key, challenge1 }
-*answer => {from: public key, challenge1signed, challenge2 }
-*answer2 => {from: public key, challenge2signed, challenge3 }
-*declineCall => {from: public key, challenge3signed}
-*acceptedCall => {from: public key, challenge3signed}
+* newCall => {from: public key, challenge1 }
+* answer => {from: public key, challenge1signed, challenge2 }
+* answer2 => {from: public key, challenge2signed, challenge3 }
+* declineCall => {from: public key, challenge3signed}
+* acceptedCall => {from: public key, challenge3signed}
