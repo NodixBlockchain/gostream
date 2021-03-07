@@ -15,11 +15,11 @@ siteOrigin is the domain of the site that host the page that will use the stream
 
 siteURL is the base URL for the site API 
 
-* /Membres/newCRSF => return a token to be used in subsequent request
-* /Membres/crossLogin/{token}
-* /Membres/peuxAppeller/{destination:[0-9]+}/{token:[a-zA-Z0-9]+}
-* /Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}
-* /Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}
+* /Membres/newCRSF => return a token to be used in subsequent request based on user session
+* /Membres/crossLogin/{token} => return used id from token
+* /Membres/peuxAppeller/{destination:[0-9]+}/{token:[a-zA-Z0-9]+} => return 1 or 0
+* /Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+} => return 1 or 0
+* /Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+} => return 1 or 0
 
 
 # Without side site
