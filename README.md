@@ -1,7 +1,7 @@
 # gostream
 
 
-Go stream is a live streaming serveur that can serve VOIP and group calls
+Go stream is a live streaming server that can serve VOIP and group calls
 
 It can function in two modes with a side website that can provide and check identification token linked to user session or in standalone mode using asymetric cryptography
 
