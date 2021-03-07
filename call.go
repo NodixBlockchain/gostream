@@ -453,6 +453,12 @@ func newCall(w http.ResponseWriter, r *http.Request) {
 		challengesMut.Unlock()
 
 		sendMsgClientPkey(dstpub, Message{messageType: 1, challenge: Challenge, fromUID: 0, fromPubKey: srcpub})
+
+		newChallenge := RandStringRunes(8)
+
+		challenges[hashPubkey(srcpub)] = newChallenge
+
+		w.Write([]byte(newChallenge))
 	}
 }
 

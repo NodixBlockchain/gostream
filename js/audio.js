@@ -6,7 +6,7 @@
                             recording : false, upstreamURL:'ws://'+streamServer + '/upRoom',totalSent:0,
                             downCallURL:'http://'+streamServer + '/joinCall',FetchCallcontroller:null,
                             upCallURL:'ws://'+streamServer + '/upCall',
-                            token:null,
+                            token:null,pubkey:null,
                             Fetchcontroller:null,
                             audioContext:null}
                 
@@ -25,6 +25,13 @@
 
         function startCall(otherID)
         {
+            if(globalAudio.calling)return
+
+            if(globalAudio.audioContext == null)
+                globalAudio.audioContext = new AudioContext();
+
+            globalAudio.totalSent = 0
+            globalAudio.calling  = true;
 
             if( globalAudio.token != null){
                 globalAudio.webSocket = new WebSocket(globalAudio.upCallURL + "?token=" + globalAudio.token + "&otherID=" + otherID);
@@ -33,43 +40,42 @@
             }
             globalAudio.webSocket.binaryType = 'arraybuffer';
 
-            if(globalAudio.audioContext == null)
-                globalAudio.audioContext = new AudioContext();
+            globalAudio.webSocket.onerror = function () { console.log('error starting call')}
 
-            globalAudio.totalSent = 0
-            globalAudio.calling  = true;
+            globalAudio.webSocket.onopen = function () {
+               
+                navigator.mediaDevices.getUserMedia ({audio: true, video: false}).then(function(stream) {
 
-            navigator.mediaDevices.getUserMedia ({audio: true, video: false}).then(function(stream) {
+                    globalAudio.stream = stream;
 
-                globalAudio.stream = stream;
+                    globalAudio.audioInput = globalAudio.audioContext.createMediaStreamSource(stream);
+                    globalAudio.gainNode = globalAudio.audioContext.createGain();
+                    globalAudio.recorder = globalAudio.audioContext.createScriptProcessor(1024, 1, 1);
 
-                globalAudio.audioInput = globalAudio.audioContext.createMediaStreamSource(stream);
-			    globalAudio.gainNode = globalAudio.audioContext.createGain();
-			    globalAudio.recorder = globalAudio.audioContext.createScriptProcessor(1024, 1, 1);
+                    globalAudio.recorder.onaudioprocess = function(e) {
 
-    			globalAudio.recorder.onaudioprocess = function(e) {
+                        if(globalAudio.calling == false)return;
 
-                    if(globalAudio.calling == false)return;
+                        var packets = convertoFloat32ToInt16(e.inputBuffer.getChannelData(0));
+                        globalAudio.webSocket.send(packets, { binary: true });
+                        
+                        globalAudio.totalSent += e.inputBuffer.getChannelData(0).length;
+                    }
+                    globalAudio.audioInput.connect(globalAudio.recorder);
 
-	    			var packets = convertoFloat32ToInt16(e.inputBuffer.getChannelData(0));
-                    globalAudio.webSocket.send(packets, { binary: true });
-                    
-                    globalAudio.totalSent += e.inputBuffer.getChannelData(0).length;
-			    }
-                globalAudio.audioInput.connect(globalAudio.recorder);
-                //globalAudio.audioInput.connect(globalAudio.gainNode);
-                //globalAudio.gainNode.connect(globalAudio.recorder);
-
-                globalAudio.startTime=Date.now();
-
-                globalAudio.recorder.connect(globalAudio.audioContext.destination);
-            });
+                    globalAudio.startTime=Date.now();
+                    globalAudio.recorder.connect(globalAudio.audioContext.destination);
+                });
+            };
         }
 
         function playCall(otherID){
 
             var audioStack = [];
             var nextTime = 0;
+
+            if(globalAudio.calling)
+                return
 
             if(globalAudio.audioContext == null)
                 globalAudio.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -172,6 +178,8 @@
             var nextTime = 0;
             var leftByte = null
 
+            if(globalAudio.calling)
+                return
         
           
             globalAudio.calling = true                           
@@ -194,8 +202,14 @@
             }
 
 
-            fetch(url, {signal,headers : hdr}).then(function(response) {
+            fetch(url, {signal,headers : hdr})
+            .then(function(response) {
 
+                if(!response.ok){
+                    console.log('play call wav error ') 
+                    console.log(response)
+                    return
+                }
                 var contentType =''
 
                 for(let entry of response.headers.entries()) {

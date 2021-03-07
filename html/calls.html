@@ -95,13 +95,11 @@
             }
             else
             {
-
                 if(DestinationID.length<65)
                 {
                     $('#destination-error').html('bad id');   
                     return; 
                 }
-
                 var okey = globalAudio.ec.keyFromPublic(DestinationID,'hex');
                 if(!okey)
                 {
@@ -112,11 +110,7 @@
                 {
                     $('#destination-error').html('cannot call yourself');   
                     return; 
-                } else{
-                    $('#destination-error').html('');
-                }
-
-
+                } 
 
                 hdr = { 'PKey': globalAudio.pubkey};
                 var enc = new TextEncoder(); // always utf-8
@@ -126,7 +120,7 @@
                 postData.signature = globalAudio.key.sign(enc.encode(globalAudio.serverChallenge)).toDER('hex');
             }
 
-            
+            $('#destination-error').html('');
             $('#appel-calling').css('display','inline');
             $('#appel-calling').html('calling ...');
 
@@ -139,6 +133,8 @@
                 dataType: "text",
                 headers: hdr,
                 success: function (result) {  
+
+                    globalAudio.serverChallenge = result;
 
                     $('#appel-decline').css('display','none');   
                     $('#appelModal1Label').html('Appel <span class="key">'+ DestinationID)+'</span>'; 
@@ -173,8 +169,11 @@
                 headers: hdr,
                 success: function (result) 
                 {  
-                   startCall(From); 
+                    startCall(From); 
                     
+                    $('#accept-call-btn').prop('disabled','disabled'); 
+                    $('#reject-call-btn').prop('disabled','disabled'); 
+
                     $('#call-infos').html('call established <span class="key">'+From+'</span>') 
                 },
                 error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/acceptCall?From='+From+'"'); }
