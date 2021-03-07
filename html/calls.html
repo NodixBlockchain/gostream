@@ -289,6 +289,11 @@
 
         function called(data) 
         {           
+            if(globalAudio.calling)
+            {
+                rejectCall(data.from,data.challenge)
+                return
+            }
             if(globalAudio.token != null)
             {
                 $('#callerID').val(data.from); 
