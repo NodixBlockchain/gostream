@@ -20,7 +20,7 @@ var roomsMut sync.Mutex
 
 var privateKey *ecdsa.PrivateKey
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: false}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
 //var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: false}
 
