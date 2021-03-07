@@ -2,3 +2,5 @@
 joinRoom.wav
 go.sum
 __debug_bin
+js/browser.js
+js/elliptic.min.js

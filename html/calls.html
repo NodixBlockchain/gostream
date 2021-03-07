@@ -232,8 +232,18 @@
             $('#appelModal').modal(); 
         }
 
-        function called(data) 
+        function hex_to_ascii(str1)
         {
+            var hex  = str1.toString();
+            var str = '';
+            for (var n = 0; n < hex.length; n += 2) {
+                str += String.fromCharCode(parseInt(hex.substr(n, 2), 16));
+            }
+            return str;
+        }
+
+        function called(data) 
+        {           
             if(globalAudio.token != null)
             {
                 $('#callerID').val(data.from); 
@@ -253,6 +263,7 @@
                 $('#appelModal').modal(); 
                 return;                
             }
+
 
             globalAudio.Challenge = createChallenge();
 
@@ -328,17 +339,24 @@
 
             if(globalAudio.token != null){
                 streamSource = new EventSource('http://'+streamServer+'/messages?CSRFtoken=' + globalAudio.token);
+
+                streamSource.addEventListener('newCall',function(e){called(JSON.parse(e.data))});
+                streamSource.addEventListener('declineCall',function(e){callDeclined(JSON.parse(e.data))});
+                streamSource.addEventListener('acceptedCall',function(e){callAccepted(JSON.parse(e.data))});
+
             }else{
 
                 streamSource = new EventSource('http://'+streamServer+'/messages?PKey=' + globalAudio.pubkey);
 
-                streamSource.addEventListener('answer',function(e){answered(JSON.parse(e.data))});
-                streamSource.addEventListener('answer2',function(e){answer2(JSON.parse(e.data))});
-            }
+                streamSource.addEventListener('answer',function(e){answered(JSON.parse(hex_to_ascii(JSON.parse(e.data))))});
+                streamSource.addEventListener('answer2',function(e){answer2(JSON.parse(hex_to_ascii(JSON.parse(e.data))))});
 
-            streamSource.addEventListener('newCall',function(e){called(JSON.parse(e.data))});
-            streamSource.addEventListener('declineCall',function(e){callDeclined(JSON.parse(e.data))});
-            streamSource.addEventListener('acceptedCall',function(e){callAccepted(JSON.parse(e.data))});
+                streamSource.addEventListener('newCall',function(e){called(JSON.parse(hex_to_ascii(JSON.parse(e.data))))});
+                streamSource.addEventListener('declineCall',function(e){callDeclined(JSON.parse(hex_to_ascii(JSON.parse(e.data))))});
+                streamSource.addEventListener('acceptedCall',function(e){callAccepted(JSON.parse(hex_to_ascii(JSON.parse(e.data))))});
+
+            }
+            
 
         }
 

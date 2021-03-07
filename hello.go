@@ -18,6 +18,8 @@ import (
 var roomList []*Room
 var roomsMut sync.Mutex
 
+var privateKey *ecdsa.PrivateKey
+
 var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
 //var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: false}
@@ -212,37 +214,17 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 
 	} else {
 
-		k, err := hex.DecodeString(otherSTR)
-
+		otherpub, err := pubKeyFromText(otherSTR, "hex")
 		if err != nil {
 			http.Error(w, "bad From", http.StatusForbidden)
 			return
 		}
 
-		X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad From", http.StatusForbidden)
-			return
-		}
-
-		otherpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
-
-		pubKey := r.Header.Get("PKey")
-
-		k, err = hex.DecodeString(pubKey)
-
+		mypub, err := pubKeyFromText(r.Header.Get("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
 		}
-
-		X, Y = elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad PKey", http.StatusForbidden)
-			return
-		}
-
-		mypub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
 
 		call = findCallPKey(mypub, otherpub)
 
@@ -257,7 +239,7 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 			clientID = 1
 		}
 
-		log.Printf("new client : %d in call [%s-%s]", clientID, pubKey, otherSTR)
+		log.Printf("new client : %d in call [%x-%x]", clientID, mypub, otherpub)
 	}
 
 	if call.clients[clientID] != nil {
@@ -330,31 +312,18 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("new audio input %d in call [%d-%d] using token '%s'\n", inputID, call.from, call.to, token)
 
 	} else {
-		otherSTR := r.FormValue("otherID")
-		k, err := hex.DecodeString(otherSTR)
-		if err != nil {
-			http.Error(w, "bad From", http.StatusForbidden)
-			return
-		}
-		X, Y := elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad From", http.StatusForbidden)
-			return
-		}
-		otherpub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
 
-		pubKey := r.FormValue("PKey")
-		k, err = hex.DecodeString(pubKey)
+		otherpub, err := pubKeyFromText(r.FormValue("otherID"), "hex")
+		if err != nil {
+			http.Error(w, "bad From", http.StatusForbidden)
+			return
+		}
+
+		mypub, err := pubKeyFromText(r.FormValue("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
 		}
-		X, Y = elliptic.UnmarshalCompressed(privateKey.Curve, k)
-		if X == nil || Y == nil {
-			http.Error(w, "bad PKey", http.StatusForbidden)
-			return
-		}
-		mypub := &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}
 
 		call = findCallPKey(mypub, otherpub)
 		if call.fromPKEY.Equal(mypub) {
@@ -363,7 +332,7 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			inputID = 1
 		}
 
-		log.Printf("new audio input %d in call [%s-%s] \n", inputID, otherSTR, pubKey)
+		log.Printf("new audio input %d in call [%x-%x] \n", inputID, mypub, otherpub)
 
 	}
 
@@ -584,8 +553,6 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 }
-
-var privateKey *ecdsa.PrivateKey
 
 /*
 var tokens map[string]int

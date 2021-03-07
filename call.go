@@ -230,7 +230,9 @@ func messages(w http.ResponseWriter, r *http.Request) {
 	messageClients = append(messageClients, newMessageClient)
 	msgClientsMut.Unlock()
 
-	w.Write([]byte("event: ping\ndata:ping\n\n"))
+	mypubHEX := hex.EncodeToString(elliptic.Marshal(privateKey.Curve, privateKey.PublicKey.X, privateKey.PublicKey.Y))
+
+	w.Write([]byte("event: pubkey\ndata:" + mypubHEX + "\n\n"))
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -238,45 +240,67 @@ func messages(w http.ResponseWriter, r *http.Request) {
 	for {
 		message := <-newMessageClient.channel
 
-		var messageBody string
+		var messageBody, messageBodyText string
+		var messageHeader string
 
 		if message.messageType == 1 {
-			messageBody = "event: newCall\ndata: {"
+			messageHeader = "event: newCall\ndata: "
 		}
 		if message.messageType == 2 {
-			messageBody = "event: declineCall\ndata: {"
+			messageHeader = "event: declineCall\ndata: "
 		}
 		if message.messageType == 3 {
-			messageBody = "event: acceptedCall\ndata: {"
+			messageHeader = "event: acceptedCall\ndata: "
 		}
 		if message.messageType == 4 {
-			messageBody = "event: answer\ndata: {"
-			messageBody += "\"challenge\": \"" + message.challenge + "\","
-			messageBody += "\"answer\": \"" + message.answer + "\","
+			messageHeader = "event: answer\ndata: "
 		}
 		if message.messageType == 5 {
-			messageBody = "event: answer2\ndata: {"
-			messageBody += "\"challenge\": \"" + message.challenge + "\","
-			messageBody += "\"answer\": \"" + message.answer + "\","
+			messageHeader = "event: answer2\ndata: "
 		}
 
 		if message.fromUID != 0 {
-			messageBody += "\"from\": " + strconv.Itoa(message.fromUID)
+			messageBody += "{ \"from\": " + strconv.Itoa(message.fromUID) + "}"
+
 		} else {
+
+			messageBodyText = "{"
+
 			if message.messageType == 1 {
-				messageBody += "\"challenge\": \"" + message.challenge + "\","
+				messageBodyText += "\"challenge\": \"" + message.challenge + "\","
 			}
 			if message.messageType == 2 || message.messageType == 3 {
-				messageBody += "\"answer\": \"" + message.answer + "\","
+				messageBodyText += "\"answer\": \"" + message.answer + "\","
 			}
-			messageBody += "\"from\": \"" + hex.EncodeToString(elliptic.MarshalCompressed(message.fromPubKey.Curve, message.fromPubKey.X, message.fromPubKey.Y)) + "\""
+			if message.messageType == 4 {
+				messageBodyText += "\"challenge\": \"" + message.challenge + "\","
+				messageBodyText += "\"answer\": \"" + message.answer + "\","
+			}
+			if message.messageType == 5 {
+				messageBodyText += "\"challenge\": \"" + message.challenge + "\","
+				messageBodyText += "\"answer\": \"" + message.answer + "\","
+			}
+
+			messageBodyText += "\"from\": \"" + hex.EncodeToString(elliptic.MarshalCompressed(message.fromPubKey.Curve, message.fromPubKey.X, message.fromPubKey.Y)) + "\""
+			messageBodyText += "}"
+
+			var messageBodyHex []byte
+
+			messageBodyHex = make([]byte, hex.EncodedLen(len(messageBodyText)), hex.EncodedLen(len(messageBodyText)))
+
+			hex.Encode(messageBodyHex, []byte(messageBodyText))
+
+			messageBody = "\"" + string(messageBodyHex) + "\""
 
 		}
 
-		messageBody += "} \n\n"
+		nWrote, err := w.Write([]byte(messageHeader))
+		if (err != nil) || (nWrote < len(messageHeader)) {
+			break
+		}
 
-		nWrote, err := w.Write([]byte(messageBody))
-		if (err != nil) || (nWrote < len(messageBody)) {
+		nWrote, err = w.Write([]byte(messageBody + "\n\n"))
+		if (err != nil) || (nWrote < len(messageBody+"\n\n")) {
 			break
 		}
 
