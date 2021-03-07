@@ -22,7 +22,7 @@ var privateKey *ecdsa.PrivateKey
 
 var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
-//var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: false}
+//var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
 
 func grabRoom(roomId int) *Room {
 
@@ -559,8 +559,6 @@ var tokens map[string]int
 
 var userid = 1
 
-
-
 func crossLogin(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("content-type", "application/json")
@@ -577,6 +575,17 @@ func crossLogin(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("0"))
 	}
 
+}
+
+func newCRSF(w http.ResponseWriter, r *http.Request) {
+
+	newtoken := RandStringRunes(12)
+
+	tokens[newtoken] = userid
+	userid++
+
+	w.Header().Set("content-type", "application/json")
+	w.Write([]byte("{\"token\" : \"" + newtoken + "\"}"))
 }
 
 func envoieAudioGroup(w http.ResponseWriter, r *http.Request) {
@@ -611,6 +620,7 @@ func peuxAppeller(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("1"))
 }
 */
+
 func main() {
 
 	fmt.Println("goStream starting !")

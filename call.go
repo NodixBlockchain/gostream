@@ -633,10 +633,11 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 	From := r.FormValue("From")
 
 	if mysite.enable {
+		var err error
 
 		token := r.Header.Get("CSRFtoken")
 
-		uid, err := mysite.checkCRSF(token)
+		uid, err = mysite.checkCRSF(token)
 		if err != nil {
 			log.Printf("API  mysite.checkCRSF(%s) \r\n", token)
 			log.Println("error ", err)
@@ -715,6 +716,12 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 		callsMut.Lock()
 		callsList = append(callsList, newCall)
 		callsMut.Unlock()
+	}
+	if mysite.enable {
+		sendMsgClient(FromId, Message{messageType: 3, fromUID: uid, fromPubKey: nil})
+	} else {
+		sendMsgClientPkey(frompub, Message{messageType: 3, fromUID: 0, fromPubKey: mypub})
+
 	}
 
 	go func(mycall *Call) {

@@ -364,32 +364,25 @@
 
         $(document).ready(function(){
 
-
-
+            
             globalAudio.ec = new elliptic.ec('p256');
             globalAudio.key = globalAudio.ec.genKeyPair();
             globalAudio.pubkey = globalAudio.key.getPublic().encodeCompressed('hex')
-
-
             $.ajax({
-                    url: 'http://'+streamServer+'/getCallTicket',
-                    type: 'GET',
-                    dataType: "text",
-                    headers: { 'PKey': globalAudio.pubkey},
-                    success: function (challenge) 
-                    { 
-                        globalAudio.serverChallenge = challenge;
-                        createEventSource(); 
-                    },
-                    error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
-                });       
-
-       
-            
-
+                url: 'http://'+streamServer+'/getCallTicket',
+                type: 'GET',
+                dataType: "text",
+                headers: { 'PKey': globalAudio.pubkey},
+                success: function (challenge) 
+                { 
+                    globalAudio.serverChallenge = challenge;
+                    createEventSource(); 
+                },
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
+            });       
             $('#moi').html( 'moi : <span class="key">' + globalAudio.pubkey +'</span>');
-
             createEventSource();
+            
 
             /*
             $.getJSON('http://localhost/Membres/newCRSF', function(result)  {
@@ -412,6 +405,7 @@
                 });            
             });
             */
+            
 
         })
 
