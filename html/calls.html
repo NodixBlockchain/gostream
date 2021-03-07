@@ -20,10 +20,15 @@
   
 
     <h1 id="moi"></h1>
+    <hr/>
+    <label for="Destination">ID Destination : </label>
+    <input type="text" id="Destination" />
+    <span id="destination-error"></span>
+    <br/>
 
     <button id="appel" onclick=" call($('#Destination').val()); ">appel</button>
+    
 
-    <input type="text" id="Destination" />
 
     <div class="modal" tabindex="-1" role="dialog"  id="appelModal1" aria-labelledby="appelModal1Label" aria-hidden="true" >
         <div class="modal-dialog modal-dialog-centered" role="document">
@@ -66,6 +71,7 @@
 
       <script>
 
+        var meID=0
 
         function createChallenge()
         {
@@ -74,17 +80,44 @@
 
         function call(DestinationID)
         {
-            $('#appel-calling').css('display','inline');
-            $('#appel-calling').html('calling ...');
 
             var postData ={Destination:DestinationID}
 
             if(globalAudio.token != null)
             {
+                if(DestinationID == meID)    
+                {
+                    $('#destination-error').html('cannot call yourself');   
+                    return; 
+                }
+
                 hdr = { 'CSRFToken': globalAudio.token};
             }
             else
             {
+
+                if(DestinationID.length<65)
+                {
+                    $('#destination-error').html('bad id');   
+                    return; 
+                }
+
+                var okey = globalAudio.ec.keyFromPublic(DestinationID,'hex');
+                if(!okey)
+                {
+                    $('#destination-error').html('bad id');   
+                    return; 
+                }
+                if(okey.getPublic('hex') == globalAudio.key.getPublic('hex'))
+                {
+                    $('#destination-error').html('cannot call yourself');   
+                    return; 
+                } else{
+                    $('#destination-error').html('');
+                }
+
+
+
                 hdr = { 'PKey': globalAudio.pubkey};
                 var enc = new TextEncoder(); // always utf-8
 
@@ -92,6 +125,12 @@
                 postData.challenge = globalAudio.Challenge;
                 postData.signature = globalAudio.key.sign(enc.encode(globalAudio.serverChallenge)).toDER('hex');
             }
+
+            
+            $('#appel-calling').css('display','inline');
+            $('#appel-calling').html('calling ...');
+
+
 
             $.ajax({
                 url: 'http://'+streamServer+'/newCall',
@@ -197,7 +236,7 @@
                 dataType: "text",
                 headers: { 'PKey': globalAudio.pubkey},
                 success: function (result) {  },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/rejectCall?From=' + From+'"'); }
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/rejectCall?From=' + data.from+'"'); }
             });             
         }
 
@@ -279,7 +318,7 @@
                 dataType: "text",
                 headers: { 'PKey': globalAudio.pubkey},
                 success: function (result) { },
-                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/answer?From=' + From+'"'); }
+                error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/answer?From=' + data.from+'"'); }
             }); 
         }
         
@@ -376,7 +415,6 @@
                 success: function (challenge) 
                 { 
                     globalAudio.serverChallenge = challenge;
-                    createEventSource(); 
                 },
                 error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
             });       
@@ -397,11 +435,12 @@
                     headers: { 'CSRFToken': result.token},
                     success: function (userID) 
                     { 
+                        meID=userID
                         $('#moi').html( 'moi : ' + userID ); 
                         globalAudio.token = result.token;  
                         createEventSource(); 
                     },
-                    error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "' + url+'"'); }
+                    error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "/tokenCheck"'); }
                 });            
             });
             */

@@ -700,15 +700,10 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 		channels := 1
 		latencyMS := 100
 		if mysite.enable {
-
-			sendMsgClient(FromId, Message{messageType: 3, fromUID: uid, fromPubKey: nil})
 			newCall = &Call{from: FromId, to: uid, output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
 
 		} else {
-
-			sendMsgClientPkey(frompub, Message{messageType: 3, answer: Signature, fromUID: 0, fromPubKey: mypub})
 			newCall = &Call{fromPKEY: frompub, toPKEY: mypub, output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
-
 		}
 
 		newCall.ticker = time.NewTicker(time.Millisecond * time.Duration(latencyMS))
@@ -717,10 +712,11 @@ func acceptCall(w http.ResponseWriter, r *http.Request) {
 		callsList = append(callsList, newCall)
 		callsMut.Unlock()
 	}
+
 	if mysite.enable {
-		sendMsgClient(FromId, Message{messageType: 3, fromUID: uid, fromPubKey: nil})
+		sendMsgClient(FromId, Message{messageType: 3, answer: Signature, fromUID: uid, fromPubKey: nil})
 	} else {
-		sendMsgClientPkey(frompub, Message{messageType: 3, fromUID: 0, fromPubKey: mypub})
+		sendMsgClientPkey(frompub, Message{messageType: 3, answer: Signature, fromUID: 0, fromPubKey: mypub})
 
 	}
 
