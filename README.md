@@ -22,14 +22,6 @@ siteURL is the base URL for the site API
 * /Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+} => return 1 or 0
 * /Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+} => return 1 or 0
 
-## The server implement the message source at address
-
-/messages?CSRFtoken=token;
-
-* newCall => {from: userid}
-* declineCall => {from: userid}
-* acceptedCall => {from: userid}
-
 ## Server API
 
 all server request using the site API must add the HTTP header "CSRFToken": token
@@ -48,21 +40,19 @@ all server request using the site API must add the HTTP header "CSRFToken": toke
 * /upRoom [RoomID : ID]  <= raw audio data
 * /joinRoom [RoomID : ID, format] => wav|ogg|opus audio data
 
+## The server implement the message source at address
+
+/messages?CSRFtoken=token;
+
+* newCall => {from: userid}
+* declineCall => {from: userid}
+* acceptedCall => {from: userid}
+
+
+
 # Without side site
 
 if enable is false, the identification use asymetrique cryptography to identify users to each other 
-
-/getCallTicket headers["PKey" : public key ] => ticket
-
-The server implement the message source at address
-
-/messages?PKey=public key
-
-* newCall => {from: public key, challenge1 }
-* answer => {from: public key, challenge1signed, challenge2 }
-* answer2 => {from: public key, challenge2signed, challenge3 }
-* declineCall => {from: public key, challenge3signed}
-* acceptedCall => {from: public key, challenge3signed}
 
 ## Server API
 
@@ -82,6 +72,18 @@ all server request using the cryptographic API must add the HTTP header "PKey": 
 
 * /upCall    [Destination : public key] <= raw audio data
 * /joinCall  [Destination : public key] => wav|ogg|opus audio data
+
+The server implement the message source at address
+
+/messages?PKey=public key
+
+* newCall => {from: public key, challenge1 }
+* answer => {from: public key, challenge1signed, challenge2 }
+* answer2 => {from: public key, challenge2signed, challenge3 }
+* declineCall => {from: public key, challenge3signed}
+* acceptedCall => {from: public key, challenge3signed}
+
+
 
 
 
