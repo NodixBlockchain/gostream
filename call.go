@@ -14,24 +14,6 @@ import (
 	"time"
 )
 
-type Message struct {
-	messageType int
-
-	challenge string
-	answer    string
-
-	fromUID    int
-	fromPubKey *ecdsa.PublicKey
-}
-
-type messageClient struct {
-	channel chan Message
-	w       http.ResponseWriter
-
-	userID int
-	pubKey *ecdsa.PublicKey
-}
-
 type Call struct {
 	from int
 	to   int
@@ -50,9 +32,6 @@ type Call struct {
 
 var callsList []*Call
 var callsMut sync.Mutex
-
-var messageClients []*messageClient
-var msgClientsMut sync.Mutex
 
 var challenges map[string]string
 var clientChallenges map[string]string
@@ -229,135 +208,6 @@ func pubKeyFromText(text string, format string) (*ecdsa.PublicKey, error) {
 	return &ecdsa.PublicKey{Curve: privateKey.Curve, X: X, Y: Y}, nil
 }
 
-func messages(w http.ResponseWriter, r *http.Request) {
-
-	var newMessageClient *messageClient
-
-	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
-	w.Header().Set("Content-Type", "text/event-stream")
-
-	if r.Method != "GET" {
-		return
-	}
-
-	if mysite.enable {
-
-		var err error
-
-		token := r.FormValue("CSRFtoken")
-
-		userid, err := mysite.checkCRSF(token)
-		if err != nil {
-			log.Printf("API mysite.checkCRSF(%s) \r\n", token)
-			log.Println("error ", err)
-			http.Error(w, "mysite.checkCRSF API error", http.StatusForbidden)
-			return
-		}
-		newMessageClient = &messageClient{w: w, channel: make(chan Message), userID: userid, pubKey: nil}
-		log.Printf("new messages client (%s) \r\n", token)
-	} else {
-		srcpub, err := pubKeyFromText(r.FormValue("PKey"), "hex")
-		if err != nil {
-			http.Error(w, "bad PKey", http.StatusForbidden)
-			return
-		}
-		newMessageClient = &messageClient{w: w, channel: make(chan Message), userID: 0, pubKey: srcpub}
-		log.Printf("new messages client (%x) \r\n", srcpub)
-	}
-
-	msgClientsMut.Lock()
-	messageClients = append(messageClients, newMessageClient)
-	msgClientsMut.Unlock()
-
-	mypubHEX := hex.EncodeToString(elliptic.Marshal(privateKey.Curve, privateKey.PublicKey.X, privateKey.PublicKey.Y))
-
-	w.Write([]byte("event: pubkey\ndata:" + mypubHEX + "\n\n"))
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
-
-	for {
-		message := <-newMessageClient.channel
-
-		var messageBody, messageBodyText string
-		var messageHeader string
-
-		if message.messageType == 1 {
-			messageHeader = "event: newCall\ndata: "
-		}
-		if message.messageType == 2 {
-			messageHeader = "event: declineCall\ndata: "
-		}
-		if message.messageType == 3 {
-			messageHeader = "event: acceptedCall\ndata: "
-		}
-		if message.messageType == 4 {
-			messageHeader = "event: answer\ndata: "
-		}
-		if message.messageType == 5 {
-			messageHeader = "event: answer2\ndata: "
-		}
-
-		if message.fromUID != 0 {
-			messageBody += "{ \"from\": " + strconv.Itoa(message.fromUID) + "}"
-
-		} else {
-
-			messageBodyText = "{"
-
-			if message.messageType == 1 {
-				messageBodyText += "\"challenge\": \"" + message.challenge + "\","
-			}
-			if message.messageType == 2 || message.messageType == 3 {
-				messageBodyText += "\"answer\": \"" + message.answer + "\","
-			}
-			if message.messageType == 4 {
-				messageBodyText += "\"challenge\": \"" + message.challenge + "\","
-				messageBodyText += "\"answer\": \"" + message.answer + "\","
-			}
-			if message.messageType == 5 {
-				messageBodyText += "\"challenge\": \"" + message.challenge + "\","
-				messageBodyText += "\"answer\": \"" + message.answer + "\","
-			}
-
-			messageBodyText += "\"from\": \"" + hex.EncodeToString(elliptic.MarshalCompressed(message.fromPubKey.Curve, message.fromPubKey.X, message.fromPubKey.Y)) + "\""
-			messageBodyText += "}"
-
-			var messageBodyHex []byte
-
-			messageBodyHex = make([]byte, hex.EncodedLen(len(messageBodyText)), hex.EncodedLen(len(messageBodyText)))
-
-			hex.Encode(messageBodyHex, []byte(messageBodyText))
-
-			messageBody = "\"" + string(messageBodyHex) + "\""
-
-		}
-
-		nWrote, err := w.Write([]byte(messageHeader))
-		if (err != nil) || (nWrote < len(messageHeader)) {
-			break
-		}
-
-		nWrote, err = w.Write([]byte(messageBody + "\n\n"))
-		if (err != nil) || (nWrote < len(messageBody+"\n\n")) {
-			break
-		}
-
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-	}
-
-	if newMessageClient.userID > 0 {
-		log.Printf("lost messages client (%d) \r\n", newMessageClient.userID)
-		removeMsgClient(newMessageClient.userID)
-	} else {
-		log.Printf("lost messages client (%x) \r\n", newMessageClient.pubKey)
-		removeMsgClientPKey(newMessageClient.pubKey)
-	}
-
-}
-
 func getCallTicket(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
@@ -460,6 +310,67 @@ func newCall(w http.ResponseWriter, r *http.Request) {
 
 		w.Write([]byte(newChallenge))
 	}
+}
+
+func (c *Call) updateAudioConf(userid int) error {
+
+	var clientID, otherID, mic, hds int
+
+	if c.from == userid {
+		clientID = 0
+		otherID = c.to
+	} else if c.to == userid {
+		clientID = 1
+		otherID = c.from
+	} else {
+		return fmt.Errorf("not part of the call")
+	}
+
+	if c.inputs[clientID] != nil {
+		mic = 1
+	} else {
+		mic = 0
+	}
+
+	if c.clients[clientID] != nil {
+		hds = 1
+	} else {
+		hds = 0
+	}
+
+	sendMsgClient(otherID, Message{messageType: 6, fromUID: userid, fromPubKey: nil, audioIn: mic, audioOut: hds})
+	return nil
+}
+
+func (c *Call) updateAudioConfPKey(pubkey *ecdsa.PublicKey) error {
+
+	var clientID, mic, hds int
+	var otherKey *ecdsa.PublicKey
+
+	if c.fromPKEY.Equal(pubkey) {
+		clientID = 0
+		otherKey = c.toPKEY
+	} else if c.toPKEY.Equal(pubkey) {
+		clientID = 1
+		otherKey = c.fromPKEY
+	} else {
+		return fmt.Errorf("not part of the call")
+	}
+
+	if c.inputs[clientID] != nil {
+		mic = 1
+	} else {
+		mic = 0
+	}
+
+	if c.clients[clientID] != nil {
+		hds = 1
+	} else {
+		hds = 0
+	}
+
+	sendMsgClientPkey(otherKey, Message{messageType: 6, fromUID: 0, fromPubKey: pubkey, audioIn: mic, audioOut: hds})
+	return nil
 }
 
 func answer(w http.ResponseWriter, r *http.Request) {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -15,14 +16,169 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type Message struct {
+	messageType int
+
+	challenge         string
+	answer            string
+	audioOut, audioIn int
+
+	fromUID    int
+	fromPubKey *ecdsa.PublicKey
+}
+
+type messageClient struct {
+	channel chan Message
+	w       http.ResponseWriter
+
+	userID int
+	pubKey *ecdsa.PublicKey
+}
+
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: false}
+
+//var mysite site = site{siteURL: "http://localhost:8080", siteOrigin: "http://localhost:8080", enable: false}
+
+var sslCERT string = "/home/gostream/gostream.crt"
+var sslKEY string = "/home/gostream/gostream.key"
+
 var roomList []*Room
 var roomsMut sync.Mutex
 
 var privateKey *ecdsa.PrivateKey
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
+var messageClients []*messageClient
+var msgClientsMut sync.Mutex
 
-//var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
+func messages(w http.ResponseWriter, r *http.Request) {
+
+	var newMessageClient *messageClient
+
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+	w.Header().Set("Content-Type", "text/event-stream")
+
+	if r.Method != "GET" {
+		return
+	}
+
+	if mysite.enable {
+
+		var err error
+
+		token := r.FormValue("CSRFtoken")
+
+		userid, err := mysite.checkCRSF(token)
+		if err != nil {
+			log.Printf("API mysite.checkCRSF(%s) \r\n", token)
+			log.Println("error ", err)
+			http.Error(w, "mysite.checkCRSF API error", http.StatusForbidden)
+			return
+		}
+		newMessageClient = &messageClient{w: w, channel: make(chan Message), userID: userid, pubKey: nil}
+		log.Printf("new messages client (%s) \r\n", token)
+	} else {
+		srcpub, err := pubKeyFromText(r.FormValue("PKey"), "hex")
+		if err != nil {
+			http.Error(w, "bad PKey", http.StatusForbidden)
+			return
+		}
+		newMessageClient = &messageClient{w: w, channel: make(chan Message), userID: 0, pubKey: srcpub}
+		log.Printf("new messages client (%x) \r\n", srcpub)
+	}
+
+	msgClientsMut.Lock()
+	messageClients = append(messageClients, newMessageClient)
+	msgClientsMut.Unlock()
+
+	mypubHEX := hex.EncodeToString(elliptic.Marshal(privateKey.Curve, privateKey.PublicKey.X, privateKey.PublicKey.Y))
+
+	w.Write([]byte("event: pubkey\ndata:" + mypubHEX + "\n\n"))
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	for {
+		message := <-newMessageClient.channel
+
+		var messageBody string
+		var messageHeader string
+
+		switch message.messageType {
+		case 1:
+			messageHeader = "event: newCall\ndata: "
+		case 2:
+			messageHeader = "event: declineCall\ndata: "
+		case 3:
+			messageHeader = "event: acceptedCall\ndata: "
+		case 4:
+			messageHeader = "event: answer\ndata: "
+		case 5:
+			messageHeader = "event: answer2\ndata: "
+		case 6:
+			messageHeader = "event: setAudioConf\ndata: "
+		}
+
+		messageBody = "{"
+
+		if message.fromUID != 0 {
+			messageBody += "\"from\": " + strconv.Itoa(message.fromUID)
+
+		} else {
+
+			if message.messageType != 1 {
+				messageBody += "\"answer\": \"" + message.answer + "\","
+			}
+
+			if message.messageType != 2 {
+				messageBody += "\"challenge\": \"" + message.challenge + "\","
+			}
+
+			messageBody += "\"from\": \"" + hex.EncodeToString(elliptic.MarshalCompressed(message.fromPubKey.Curve, message.fromPubKey.X, message.fromPubKey.Y)) + "\""
+		}
+
+		if message.messageType == 6 {
+			messageBody += ",\"in\": \"" + strconv.Itoa(message.audioIn) + "\""
+			messageBody += ",\"out\": \"" + strconv.Itoa(message.audioOut) + "\""
+		}
+
+		messageBody += "}"
+
+		nWrote, err := w.Write([]byte(messageHeader))
+		if (err != nil) || (nWrote < len(messageHeader)) {
+			break
+		}
+		if message.fromUID != 0 {
+			nWrote, err = w.Write([]byte(messageBody + "\n\n"))
+			if (err != nil) || (nWrote < len(messageBody+"\n\n")) {
+				break
+			}
+		} else {
+
+			messageBodyHex := make([]byte, hex.EncodedLen(len(messageBody)), hex.EncodedLen(len(messageBody)))
+
+			hex.Encode(messageBodyHex, []byte(messageBody))
+
+			nWrote, err = w.Write([]byte("\"" + string(messageBodyHex) + "\"\n\n"))
+			if (err != nil) || (nWrote < len(messageBody+"\n\n")) {
+				break
+			}
+
+		}
+
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+
+	if newMessageClient.userID > 0 {
+		log.Printf("lost messages client (%d) \r\n", newMessageClient.userID)
+		removeMsgClient(newMessageClient.userID)
+	} else {
+		log.Printf("lost messages client (%x) \r\n", newMessageClient.pubKey)
+		removeMsgClientPKey(newMessageClient.pubKey)
+	}
+
+}
 
 func grabRoom(roomId int) *Room {
 
@@ -153,8 +309,9 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 	var format string
 	var otherSTR string
 	var call *Call
-	var clientID int
+	var otherID, userid, clientID int
 	var token string
+	var mypub, otherpub *ecdsa.PublicKey
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "PKey,CSRFToken")
@@ -180,7 +337,7 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 
 	if mysite.enable {
 
-		otherID, err := strconv.Atoi(otherSTR)
+		otherID, err = strconv.Atoi(otherSTR)
 		if err != nil {
 			http.Error(w, "bad other id", http.StatusInternalServerError)
 			return
@@ -191,7 +348,7 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 			token = r.FormValue("token")
 		}
 
-		userid, err := mysite.checkCRSF(token)
+		userid, err = mysite.checkCRSF(token)
 		if err != nil {
 			w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
 			log.Printf("token %s check error %v ", token, err)
@@ -214,13 +371,13 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 
 	} else {
 
-		otherpub, err := pubKeyFromText(otherSTR, "hex")
+		otherpub, err = pubKeyFromText(otherSTR, "hex")
 		if err != nil {
 			http.Error(w, "bad From", http.StatusForbidden)
 			return
 		}
 
-		mypub, err := pubKeyFromText(r.Header.Get("PKey"), "hex")
+		mypub, err = pubKeyFromText(r.Header.Get("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
@@ -259,6 +416,12 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if mysite.enable {
+		call.updateAudioConf(userid)
+	} else {
+		call.updateAudioConfPKey(mypub)
+	}
+
 	for {
 		newBuffer := <-call.clients[clientID].channel
 		if e.writeBuffer(newBuffer) != nil {
@@ -268,28 +431,35 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 
 	call.clients[clientID] = nil
 
+	if mysite.enable {
+		call.updateAudioConf(userid)
+	} else {
+		call.updateAudioConfPKey(mypub)
+	}
+
 }
 
 // wsHandler implements the Handler Interface
 type wsCallHandler struct{}
 
 func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	var inputID int
+	var inputID, otherID, userid int
 	var err error
 	var token string
 	var call *Call
+	var mypub, otherpub *ecdsa.PublicKey
 
 	if mysite.enable {
 
 		token = r.FormValue("token")
 
-		otherID, err := strconv.Atoi(r.FormValue("otherID"))
+		otherID, err = strconv.Atoi(r.FormValue("otherID"))
 		if err != nil {
 			http.Error(w, "no other id", http.StatusInternalServerError)
 			return
 		}
 
-		userid, err := mysite.checkCRSF(token)
+		userid, err = mysite.checkCRSF(token)
 		if err != nil {
 			w.Write([]byte(fmt.Sprintf("check CRSF Failed %s %v \r\n", token, err)))
 			log.Printf("token %s check error %v ", token, err)
@@ -313,13 +483,13 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	} else {
 
-		otherpub, err := pubKeyFromText(r.FormValue("otherID"), "hex")
+		otherpub, err = pubKeyFromText(r.FormValue("otherID"), "hex")
 		if err != nil {
 			http.Error(w, "bad From", http.StatusForbidden)
 			return
 		}
 
-		mypub, err := pubKeyFromText(r.FormValue("PKey"), "hex")
+		mypub, err = pubKeyFromText(r.FormValue("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
@@ -357,6 +527,12 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if mysite.enable {
+		call.updateAudioConf(userid)
+	} else {
+		call.updateAudioConfPKey(mypub)
+	}
+
 	for {
 		_, message, err := wsConn.ReadMessage()
 		if err != nil {
@@ -372,6 +548,12 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	call.inputs[inputID] = nil
+
+	if mysite.enable {
+		call.updateAudioConf(userid)
+	} else {
+		call.updateAudioConfPKey(mypub)
+	}
 }
 
 func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
@@ -676,8 +858,12 @@ func main() {
 	router.HandleFunc("/tokenCheck", tokenCheck)
 	router.HandleFunc("/keyXCHG", keyXCHG)
 
-	router.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
-	router.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
+	router.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./www/js"))))
+	router.Handle("/html/", http.StripPrefix("/html/", http.FileServer(http.Dir("./www/html"))))
+
+	if _, err := os.Stat(sslCERT); !os.IsNotExist(err) {
+		log.Fatal(http.ListenAndServeTLS(":8080", sslCERT, sslKEY, router))
+	}
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 
