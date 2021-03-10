@@ -626,8 +626,8 @@
 
                 this.calling = false;
 
-                stopCallmic();
-                stopCallhds();
+                this.stopCallmic();
+                this.stopCallhds();
 
                 this.callStart = null;
                 this.token = null;
