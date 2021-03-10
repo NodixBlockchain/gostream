@@ -119,7 +119,7 @@
                 if(pubkey != null)
                 {
                     this.pubkey=pubkey;
-                    return $.ajax({url: this.HTTPProto+'://'+this.streamServer+'/getCallTicket', type : 'GET', headers : { 'PKey' : this.pubkey }, dataType: "text", success: function (challenge) { self.serverChallenge = challenge; console.log("init  "+self.serverChallenge); } });
+                    return $.ajax({url: this.HTTPProto+'://'+this.streamServer+'/getCallTicket', type : 'GET', headers : { 'PKey' : this.pubkey }, dataType: "text", success: function (challenge) { self.serverChallenge = challenge; } });
                     
                 }else{
                     return $.getJSON('http://localhost/Membres/newCRSF', function(result)  { self.token = result.token; });            
@@ -749,7 +749,6 @@
                         $('#destination-error').html('invalid destination');
                         return false; 
                     }
-                        
     
                     if(okey.getPublic().encodeCompressed('hex') == this.pubkey)
                     {
@@ -759,15 +758,12 @@
                         
                     this.Challenge = createChallenge();
                     var signature = this.key.sign(this.enc.encode(this.server.serverChallenge)).toDER('hex');
-
-                    console.log("call "+this.server.serverChallenge+" "+signature)
-
                     xhr = this.server.newCall(DestinationID,this.Challenge,signature);
                 }
 
                 if(!xhr)
                 {
-                    $('#destination-error').html('invalid destination id');
+                    $('#destination-error').html('unable to connect stream server');
                     return;    
                 }            
 
