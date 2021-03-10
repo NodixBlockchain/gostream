@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"net/http"
 	"sync"
 	"time"
@@ -19,7 +20,8 @@ type inputChannel struct {
 	buffers    []*inputChannelBuffer
 	totalRead  int
 	startTime  time.Time
-	token      string
+	userID     int
+	pubkey     *ecdsa.PublicKey
 	bufMut     sync.Mutex
 }
 
@@ -27,7 +29,8 @@ type roomClient struct {
 	id         int
 	clientConn http.ResponseWriter
 	channel    chan []int16
-	token      string
+	userID     int
+	pubkey     *ecdsa.PublicKey
 }
 
 type clientBuffer struct {
@@ -48,9 +51,6 @@ type Room struct {
 	desc     string
 	RoomType string
 
-	callFrom int
-	callTo   int
-
 	currentInputId  int
 	currentclientId int
 
@@ -63,12 +63,25 @@ type Room struct {
 	ticker *time.Ticker
 }
 
-func (r *Room) addInput(sampleRate int, chans int, token string) int {
+func (r *Room) addInput(sampleRate int, chans int, userID int) int {
 
 	r.inputMut.Lock()
 
 	newinputId := r.currentInputId
-	r.inputs = append(r.inputs, &inputChannel{id: newinputId, token: token, sampleRate: sampleRate, channels: chans, totalRead: 0, startTime: time.Now()})
+	r.inputs = append(r.inputs, &inputChannel{id: newinputId, userID: userID, pubkey: nil, sampleRate: sampleRate, channels: chans, totalRead: 0, startTime: time.Now()})
+	r.currentInputId++
+
+	r.inputMut.Unlock()
+
+	return newinputId
+}
+
+func (r *Room) addInputPKey(sampleRate int, chans int, pubkey *ecdsa.PublicKey) int {
+
+	r.inputMut.Lock()
+
+	newinputId := r.currentInputId
+	r.inputs = append(r.inputs, &inputChannel{id: newinputId, userID: 0, pubkey: pubkey, sampleRate: sampleRate, channels: chans, totalRead: 0, startTime: time.Now()})
 	r.currentInputId++
 
 	r.inputMut.Unlock()
@@ -106,12 +119,25 @@ func (r *Room) removeInput(id int) {
 	r.inputMut.Unlock()
 }
 
-func (r *Room) addClient(w http.ResponseWriter, token string) int {
+func (r *Room) addClient(w http.ResponseWriter, userID int) int {
 
 	r.clientsMut.Lock()
 
 	newClientid := r.currentclientId
-	r.clients = append(r.clients, &roomClient{id: newClientid, token: token, channel: make(chan []int16, 1), clientConn: w})
+	r.clients = append(r.clients, &roomClient{id: newClientid, userID: userID, pubkey: nil, channel: make(chan []int16, 1), clientConn: w})
+	r.currentclientId++
+
+	r.clientsMut.Unlock()
+
+	return newClientid
+}
+
+func (r *Room) addClientPKey(w http.ResponseWriter, pubkey *ecdsa.PublicKey) int {
+
+	r.clientsMut.Lock()
+
+	newClientid := r.currentclientId
+	r.clients = append(r.clients, &roomClient{id: newClientid, userID: 0, pubkey: pubkey, channel: make(chan []int16, 1), clientConn: w})
 	r.currentclientId++
 
 	r.clientsMut.Unlock()

@@ -1,0 +1,72 @@
+<html>
+<head>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js" ></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/opus-stream-decoder.js"></script>
+    <script src="/js/js-ecdsa.min.js"></script>
+    <script src="/js/calls.js"></script>
+</head>
+<body>
+
+    <script>
+        var myserver=null;
+        var myclient=null;
+       
+        $(document).ready(function(){
+            myserver = new StreamServer('localhost:8080','http','ws');
+            myclient = new GroupClient("crypto");
+            
+            myclient.initialize(myserver)
+            .done( function(){
+
+                if( myclient.pubkey)
+                    $('#moi').html( '<span class="key">' + myclient.pubkey +'</span>');
+                else
+                    $('#moi').html(  myclient.meID ); 
+
+                $('#reccord').prop("disabled", false);
+                $('#play').prop("disabled", false);
+            })
+            .fail( function( jqxhr, textStatus, error ) { 
+                console.log( "error connecting streaming server " + textStatus ); 
+            });
+        });
+
+    </script>
+
+    
+    <div class="container">
+        <div class="row">
+            <div class="col">me :</div> <div class="col"><div id="moi"></div></div>
+        </div>        
+        <div class="row">
+            <div class="col">group id :</div> <div class="col"> <input id="group-id" type="text" value="1" /></div>
+        </div>
+
+        <div class="row">
+            <div class="col">group time :</div> <div class="col" id="group-time">00:00:00</div>
+        </div>
+        
+        <div class="row">
+            <div class="col">
+                <button id="reccord" class="badge badge-danger" onclick="myclient.startReccording($('#group-id').val());" disabled>mic</button>
+            </div> 
+            <div class="col" id="group-up"> - </div>
+        </div>
+
+        <div class="row">
+            <div class="col"> 
+                <button id="play" class="badge badge-danger" onclick=" if($('#format').val() == 'wav') myclient.play($('#group-id').val()); else myclient.playOpus($('#group-id').val()); " disabled>hds</button>
+                <select id="format"><option value="wav">wav</option><option value="opus">opus</option></select>    
+            </div> 
+            <div class="col" id="group-down"> - </div>
+        </div>
+    </div>
+
+</body>
+
+</html>

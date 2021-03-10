@@ -27,7 +27,6 @@
             myclient = new CallClient("crypto");
             myclient.initialize(myserver);
         })
-
     </script>
 
 
@@ -39,6 +38,7 @@
     <br/>
     <button id="appel" onclick=" myclient.call($('#Destination').val()); ">appel</button>
     
+
 
     <div class="modal" tabindex="-1" role="dialog"  id="appelModal1" aria-labelledby="appelModal1Label" aria-hidden="true" >
         <div class="modal-dialog modal-dialog-centered" role="document">
@@ -96,9 +96,9 @@
                 </div>
             </div>
             <div class="modal-footer center">
-                <button id="call-mic" class="badge badge-danger" onclick="if(myserver.recording){ $(this).removeClass('badge-success');  $(this).addClass('badge-danger'); myclient.server.stopCallmic(); } else {  $(this).removeClass('badge-danger');  $(this).addClass('badge-success'); myclient.server.startCall   ($('#callerID').val()); } " >mic</button>
-                <button id="call-hds" class="badge badge-danger" onclick="if(myserver.playing)  { $(this).removeClass('badge-success');  $(this).addClass('badge-danger'); myclient.server.stopCallhds(); } else {  $(this).removeClass('badge-danger');  $(this).addClass('badge-success'); myclient.server.playCallWav ($('#callerID').val()); } " >hds</button>
-                <button class="btn btn-primary" onclick="myclient.server.stopCall()"  data-dismiss="modal">fermer</button>
+                <button id="call-mic" class="badge badge-danger" onclick="if(myserver.recording){ $(this).removeClass('badge-success');  $(this).addClass('badge-danger'); myclient.stopCallmic(); } else {  $(this).removeClass('badge-danger');  $(this).addClass('badge-success'); myclient.startCall   ($('#callerID').val()); } " >mic</button>
+                <button id="call-hds" class="badge badge-danger" onclick="if(myserver.playing)  { $(this).removeClass('badge-success');  $(this).addClass('badge-danger'); myclient.stopCallhds(); } else {  $(this).removeClass('badge-danger');  $(this).addClass('badge-success'); myclient.playCallWav ($('#callerID').val()); } " >hds</button>
+                <button class="btn btn-primary" onclick="myclient.stopCall()"  data-dismiss="modal">fermer</button>
             </div>
           </div>
         </div>
