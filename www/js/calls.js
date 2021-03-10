@@ -1098,33 +1098,37 @@
                     this.callUpdateTimeout = setInterval( function(){ self.updateGroupInfos(); }, 1000)      
                 }                
 
-                navigator.mediaDevices.getUserMedia ({audio: true, video: false}).then(function(stream) {
+                this.webSocket.onerror = function () { console.log('error starting call')}
+    
+                this.webSocket.onopen = function () {
+                    navigator.mediaDevices.getUserMedia ({audio: true, video: false}).then(function(stream) {
 
-                    self.stream = stream;
+                        self.stream = stream;
 
-                    self.audioInput = self.audioContext.createMediaStreamSource(stream);
-                    self.gainNode = self.audioContext.createGain();
-                    self.recorder = self.audioContext.createScriptProcessor(1024, 1, 1);
+                        self.audioInput = self.audioContext.createMediaStreamSource(stream);
+                        self.gainNode = self.audioContext.createGain();
+                        self.recorder = self.audioContext.createScriptProcessor(1024, 1, 1);
 
-                    self.recorder.onaudioprocess = function(e) {
+                        self.recorder.onaudioprocess = function(e) {
 
-                        if(self.recording == false)return;
+                            if(self.recording == false)return;
 
-                        var packets = convertoFloat32ToInt16(e.inputBuffer.getChannelData(0));
-                        self.webSocket.send(packets, { binary: true });
+                            var packets = convertoFloat32ToInt16(e.inputBuffer.getChannelData(0));
+                            self.webSocket.send(packets, { binary: true });
 
-                        self.totalSamplesSent += e.inputBuffer.getChannelData(0).length;
-                        self.totalSent += packets.byteLength;
-                    }
-                    self.audioInput.connect(self.recorder);
-                    //self.audioInput.connect(self.gainNode);
-                    //self.gainNode.connect(self.recorder);
-                   
-                    if(self.startTime == null)
-                        self.startTime = new Date();
+                            self.totalSamplesSent += e.inputBuffer.getChannelData(0).length;
+                            self.totalSent += packets.byteLength;
+                        }
+                        self.audioInput.connect(self.recorder);
+                        //self.audioInput.connect(self.gainNode);
+                        //self.gainNode.connect(self.recorder);
+                    
+                        if(self.startTime == null)
+                            self.startTime = new Date();
 
-                    self.recorder.connect(self.audioContext.destination);
-                });
+                        self.recorder.connect(self.audioContext.destination);
+                    });
+                };
             }
 
             playOpus(roomID){
