@@ -96,8 +96,8 @@
                 </div>
             </div>
             <div class="modal-footer center">
-                <button id="call-mic" class="badge badge-danger" onclick="if(myserver.recording){ $(this).removeClass('badge-success');  $(this).addClass('badge-danger'); myclient.stopCallmic(); } else {  $(this).removeClass('badge-danger');  $(this).addClass('badge-success'); myclient.startCall   ($('#callerID').val()); } " >mic</button>
-                <button id="call-hds" class="badge badge-danger" onclick="if(myserver.playing)  { $(this).removeClass('badge-success');  $(this).addClass('badge-danger'); myclient.stopCallhds(); } else {  $(this).removeClass('badge-danger');  $(this).addClass('badge-success'); myclient.playCallWav ($('#callerID').val()); } " >hds</button>
+                <button id="call-mic" class="badge badge-danger" onclick="if(myclient.recording){ $(this).removeClass('badge-success');  $(this).addClass('badge-danger'); myclient.stopCallmic(); } else {  $(this).removeClass('badge-danger');  $(this).addClass('badge-success'); myclient.startCall   ($('#callerID').val()); } " >mic</button>
+                <button id="call-hds" class="badge badge-danger" onclick="if(myclient.playing)  { $(this).removeClass('badge-success');  $(this).addClass('badge-danger'); myclient.stopCallhds(); } else {  $(this).removeClass('badge-danger');  $(this).addClass('badge-success'); myclient.playCallWav ($('#callerID').val()); } " >hds</button>
                 <button class="btn btn-primary" onclick="myclient.stopCall()"  data-dismiss="modal">fermer</button>
             </div>
           </div>
