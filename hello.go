@@ -35,9 +35,9 @@ type messageClient struct {
 	pubKey *ecdsa.PublicKey
 }
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: false}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
-//var mysite site = site{siteURL: "http://localhost:8080", siteOrigin: "http://localhost:8080", enable: false}
+//var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
 
 var sslCERT string = "/home/gostream/gostream.crt"
 var sslKEY string = "/home/gostream/gostream.key"
@@ -832,8 +832,8 @@ func main() {
 		routerSite.HandleFunc("/Groupes/envoieAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", envoieAudioGroup)
 		routerSite.HandleFunc("/Groupes/ecouteAudioGroup/{roomid:[0-9]+}/{token:[a-zA-Z0-9]+}/{on:[0-9]+}", ecouteAudioGroup)
 
-		routerSite.Handle("/js/{file}", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
-		routerSite.Handle("/html/{file}", http.StripPrefix("/html/", http.FileServer(http.Dir("./html"))))
+		routerSite.Handle("/js/{file}", http.StripPrefix("/js/", http.FileServer(http.Dir("./www/js"))))
+		routerSite.Handle("/html/{file}", http.StripPrefix("/html/", http.FileServer(http.Dir("./www/html"))))
 
 		go func() {
 			log.Fatal(http.ListenAndServe(":80", routerSite))

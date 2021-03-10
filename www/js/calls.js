@@ -141,7 +141,7 @@
             {
                 var self=this;
 
-                return $.ajax({url:  this.HTTPProto + '://'+this.streamServer +'/tokenCheck', type: 'POST', headers: { 'CSRFToken': this.token}, dataType: "text",
+                return $.ajax({url:  this.HTTPProto + '://'+this.streamServer +'/tokenCheck', type: 'GET', headers: { 'CSRFToken': this.token}, dataType: "text",
                     success: function (result) {  self.userID = result; },
                     error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "'+self.HTTPProto + '://'+self.streamServer +'/tokenCheck"'); } 
                 });
