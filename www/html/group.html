@@ -25,8 +25,12 @@
 
                 if( myclient.pubkey)
                     $('#moi').html( '<span class="key">' + myclient.pubkey +'</span>');
-                else
-                    $('#moi').html(  myclient.meID ); 
+                else{
+                    myclient.server.tokenCheck().done(function(){
+                        $('#moi').html(  myclient.server.userID ); 
+                    });
+                }
+                    
 
                 $('#reccord').prop("disabled", false);
                 $('#play').prop("disabled", false);

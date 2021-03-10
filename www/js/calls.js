@@ -292,7 +292,7 @@
                             self.eventSource.addEventListener('acceptedCall',function(e){self.callAccepted(JSON.parse(e.data))});
                             self.eventSource.addEventListener('setAudioConf',function(e){self.setAudioConf(JSON.parse(e.data))});
 
-                            self.meID = self.server.userID
+                            self.meID = self.server.userID;
                             $('#moi').html( 'moi : ' + self.meID ); 
                         });
            
