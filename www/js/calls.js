@@ -819,7 +819,7 @@
 
                 
 
-                fetch(this.this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall' + "?format=wav&otherID=" + otherID, { signal:  this.FetchController.signal, headers : hdr})
+                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall' + "?format=wav&otherID=" + otherID, { signal:  this.FetchController.signal, headers : hdr})
                 .then(function(response) {
 
                         if(!response.ok){
