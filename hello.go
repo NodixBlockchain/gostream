@@ -16,6 +16,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+//<\?php[' ']+echo[' ']+site_url\(["'"]([^']*)["'"][^)]*\);?[' ']+\?>
+//<\?php[' ']+echo[' ']+base_url\(["'"]([^']*)["'"][^)]*\);?[' ']+\?>
+//<\?php[' ']+echo[' ']+\$[^\[]*\[([^;]*)\];?[' ']*\?>
+
 type Message struct {
 	messageType int
 
@@ -35,7 +39,7 @@ type messageClient struct {
 	pubKey *ecdsa.PublicKey
 }
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: false}
 
 //var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
 
@@ -316,7 +320,7 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "PKey,CSRFToken")
 
-	if r.Method != "GET" {
+	if r.Method != "POST" {
 		w.WriteHeader(200)
 		return
 	}
@@ -378,15 +382,32 @@ func handleJoinCall(w http.ResponseWriter, r *http.Request) {
 
 	} else {
 
-		otherpub, err = pubKeyFromText(otherSTR, "hex")
-		if err != nil {
-			http.Error(w, "bad From", http.StatusForbidden)
-			return
-		}
-
 		mypub, err = pubKeyFromText(r.Header.Get("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
+			return
+		}
+
+		Signature, err := hex.DecodeString(r.FormValue("Signature"))
+		if err != nil {
+			http.Error(w, "bad signature", http.StatusForbidden)
+			return
+		}
+		kh := hashPubkey(mypub)
+
+		challengesMut.Lock()
+		challenge := challenges[kh]
+		challengesMut.Unlock()
+
+		res := ecdsa.VerifyASN1(mypub, []byte(challenge), Signature)
+		if !res {
+			http.Error(w, "bad signature", http.StatusForbidden)
+			return
+		}
+
+		otherpub, err = pubKeyFromText(otherSTR, "hex")
+		if err != nil {
+			http.Error(w, "bad From", http.StatusForbidden)
 			return
 		}
 
@@ -497,15 +518,33 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	} else {
 
-		otherpub, err = pubKeyFromText(r.FormValue("otherID"), "hex")
-		if err != nil {
-			http.Error(w, "bad From", http.StatusForbidden)
-			return
-		}
-
 		mypub, err = pubKeyFromText(r.FormValue("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
+			return
+		}
+
+		Signature, err := hex.DecodeString(r.FormValue("Signature"))
+		if err != nil {
+			http.Error(w, "bad signature", http.StatusForbidden)
+			return
+		}
+
+		kh := hashPubkey(mypub)
+
+		challengesMut.Lock()
+		challenge := challenges[kh]
+		challengesMut.Unlock()
+
+		res := ecdsa.VerifyASN1(mypub, []byte(challenge), Signature)
+		if !res {
+			http.Error(w, "bad signature", http.StatusForbidden)
+			return
+		}
+
+		otherpub, err = pubKeyFromText(r.FormValue("otherID"), "hex")
+		if err != nil {
+			http.Error(w, "bad From", http.StatusForbidden)
 			return
 		}
 
@@ -578,7 +617,7 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "PKey,CSRFToken")
 
-	if r.Method != "GET" {
+	if r.Method != "POST" {
 		w.WriteHeader(200)
 		return
 	}
@@ -637,6 +676,25 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
 		}
+
+		Signature, err := hex.DecodeString(r.FormValue("Signature"))
+		if err != nil {
+			http.Error(w, "bad signature", http.StatusForbidden)
+			return
+		}
+
+		kh := hashPubkey(mypub)
+
+		challengesMut.Lock()
+		challenge := challenges[kh]
+		challengesMut.Unlock()
+
+		res := ecdsa.VerifyASN1(mypub, []byte(challenge), Signature)
+		if !res {
+			http.Error(w, "bad signature", http.StatusForbidden)
+			return
+		}
+
 		newClientId = room.addClientPKey(w, mypub)
 
 		log.Printf("new client : %d in room [%d] %s using pubkey '%x'", newClientId, room.id, room.name, mypub)
@@ -732,6 +790,23 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		mypub, err := pubKeyFromText(r.FormValue("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
+			return
+		}
+
+		Signature, err := hex.DecodeString(r.FormValue("Signature"))
+		if err != nil {
+			http.Error(w, "bad signature", http.StatusForbidden)
+			return
+		}
+		kh := hashPubkey(mypub)
+
+		challengesMut.Lock()
+		challenge := challenges[kh]
+		challengesMut.Unlock()
+
+		res := ecdsa.VerifyASN1(mypub, []byte(challenge), Signature)
+		if !res {
+			http.Error(w, "bad signature", http.StatusForbidden)
 			return
 		}
 

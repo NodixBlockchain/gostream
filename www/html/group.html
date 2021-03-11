@@ -57,14 +57,14 @@
         
         <div class="row">
             <div class="col">
-                <button id="reccord" class="badge badge-danger" onclick="myclient.startReccording($('#group-id').val());" disabled>mic</button>
+                <button id="reccord" class="badge badge-danger" onclick="var Signature = myclient.key.sign(myclient.enc.encode(myclient.server.serverChallenge)).toDER('hex'); myclient.startReccording($('#group-id').val(),Signature);" disabled>mic</button>
             </div> 
             <div class="col" id="group-up"> - </div>
         </div>
 
         <div class="row">
             <div class="col"> 
-                <button id="play" class="badge badge-danger" onclick=" if($('#format').val() == 'wav') myclient.play($('#group-id').val()); else myclient.playOpus($('#group-id').val()); " disabled>hds</button>
+                <button id="play" class="badge badge-danger" onclick=" var Signature = myclient.key.sign(myclient.enc.encode(myclient.server.serverChallenge)).toDER('hex'); if($('#format').val() == 'wav') myclient.play($('#group-id').val(), Signature); else myclient.playOpus($('#group-id').val(), Signature); " disabled>hds</button>
                 <select id="format"><option value="wav">wav</option><option value="opus">opus</option></select>    
             </div> 
             <div class="col" id="group-down"> - </div>

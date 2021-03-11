@@ -306,7 +306,9 @@ func newCall(w http.ResponseWriter, r *http.Request) {
 
 		newChallenge := RandStringRunes(8)
 
+		challengesMut.Lock()
 		challenges[hashPubkey(srcpub)] = newChallenge
+		challengesMut.Unlock()
 
 		w.Write([]byte(newChallenge))
 	}

@@ -395,10 +395,14 @@
 
                 xhr.done(function (result)  {  
 
+                    var Signature=null;
+
+                   
                     if(self.server.token != null){
                         self.playCall(From);  
                     }else{
-                        self.playCallWav(From);  
+                        Signature = self.key.sign(self.enc.encode(self.server.serverChallenge)).toDER('hex');                    
+                        self.playCallWav(From,Signature);  
                     }
 
                     $('#call-hds').removeClass('badge-danger');  
@@ -481,7 +485,9 @@
 
                  $('#callerID').val(data.from); 
 
-                 this.startCall(data.from); 
+                 var Signature = this.key.sign(this.enc.encode(this.server.serverChallenge)).toDER('hex');           
+
+                 this.startCall(data.from, Signature); 
  
                  $('#call-mic').removeClass('badge-danger');  
                  $('#call-mic').addClass('badge-success');
@@ -606,7 +612,7 @@
             }
 
 
-            startCall(otherID)
+            startCall(otherID, Signature)
             {
                 var self=this;
 
@@ -625,7 +631,7 @@
                 if( this.server.token != null){
                     this.webSocket = new WebSocket(this.server.WSProto +'://'+this.server.streamServer + '/upCall?token=' + this.server.token + "&otherID=" + otherID);
                 }else{
-                    this.webSocket = new WebSocket(this.server.WSProto +'://'+this.server.streamServer + '/upCall?PKey=' + this.pubkey + "&otherID=" + otherID);
+                    this.webSocket = new WebSocket(this.server.WSProto +'://'+this.server.streamServer + '/upCall?otherID=' + otherID + '&PKey=' + this.pubkey + '&Signature=' + Signature);
                 }
                 this.webSocket.binaryType = 'arraybuffer';
     
@@ -666,7 +672,7 @@
             
         
 
-            playCall(otherID){
+            playCall(otherID, Signature){
 
                 var self=this;
                 var hdr={};
@@ -683,6 +689,16 @@
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
                 
+             
+                this.FetchController = new AbortController(); 
+
+                if(this.callStart == null)
+                    this.callStart = new Date();
+
+
+                var formData=new FormData();
+                formData.append("otherID", otherID);
+    
                 if(this.server.token != null)
                 {
                     hdr = { 'CSRFToken': this.server.token};
@@ -690,16 +706,12 @@
                 else
                 {
                     hdr = { 'PKey': this.pubkey};
-                }
-
-                this.FetchController = new AbortController(); 
-
-                if(this.callStart == null)
-                    this.callStart = new Date();
+                    formData.append("Signature", Signature);
+                }                    
 
                 try {
                     // Fetch a file and decode it.
-                    fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall?otherID=' + otherID, { signal:  this.FetchController.signal, headers : hdr})
+                    fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall', { method:"post", signal:  this.FetchController.signal, headers : hdr, body: formData})
                     .then(decodeOpusResponse)
                     .catch(console.error);
                 }
@@ -786,7 +798,7 @@
             }
 
 
-            playCallWav(otherID){
+            playCallWav(otherID, Signature){
                 var self=this;
                 var hdr={};
                 var audioStack = [];
@@ -801,15 +813,6 @@
             
                 if(this.audioContext == null)
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
-                if(this.server.token != null)
-                {
-                    hdr = { 'CSRFToken': this.server.token};
-                }
-                else
-                {
-                    hdr = { 'PKey': this.pubkey};
-                }
                 
                 this.FetchController = new AbortController();
                 this.playing = true;
@@ -818,8 +821,21 @@
                     this.callStart = new Date();                
 
                 
-
-                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall' + "?format=wav&otherID=" + otherID, { signal:  this.FetchController.signal, headers : hdr})
+                var formData=new FormData();
+                formData.append("otherID", otherID);
+                formData.append("format", 'wav');
+        
+                if(this.server.token != null)
+                {
+                    hdr = { 'CSRFToken': this.server.token};
+                }
+                else
+                {
+                    hdr = { 'PKey': this.pubkey};
+                    formData.append("Signature", Signature);
+                }                    
+    
+                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall', { method:"POST", signal:  this.FetchController.signal, headers : hdr, body: formData})
                 .then(function(response) {
 
                         if(!response.ok){
@@ -836,8 +852,9 @@
 
                         if(contentType != 'audio/wav')
                         {
-                            alert('wrong content type '+contentType)
-                            alert(response.body.readAll())
+                            response.text().then(function(reponse){
+                                alert('wrong content type '+reponse);
+                            });
                             return;
                         }
 
@@ -1063,7 +1080,7 @@
             }
 
             
-            startReccording(roomID)
+            startReccording(roomID, Signature)
             {
                 var self=this;
                 if(this.recording == true)
@@ -1081,7 +1098,7 @@
                 if( this.server.token != null){
                     this.webSocket = new WebSocket(this.server.WSProto +'://'+this.server.streamServer + '/upRoom?token=' + this.server.token + '&roomID=' + roomID);
                 }else{
-                    this.webSocket = new WebSocket(this.server.WSProto +'://'+this.server.streamServer + '/upRoom?PKey=' + this.pubkey + '&roomID=' + roomID);
+                    this.webSocket = new WebSocket(this.server.WSProto +'://'+this.server.streamServer + '/upRoom?roomID=' + roomID + '&PKey=' + this.pubkey + '&Signature=' +Signature );
                 }
 
 
@@ -1131,12 +1148,13 @@
                 };
             }
 
-            playOpus(roomID){
+            playOpus(roomID, Signature){
 
                 var hdr={}
                 var self=this;
                 var audioStack = [];
                 var nextTime = 0;
+  
 
                 if(this.playing == true){
                     this.stoplaying();
@@ -1162,6 +1180,10 @@
                    this.callUpdateTimeout = setInterval( function(){ self.updateGroupInfos(); }, 1000)      
                 }                   
 
+                var formData=new FormData();
+                formData.append("roomID", roomID);
+                
+
                 if(this.server.token != null)
                 {
                     hdr = { 'CSRFToken': this.server.token};
@@ -1169,10 +1191,11 @@
                 else
                 {
                     hdr = { 'PKey': this.pubkey};
+                    formData.append("Signature", Signature);                
                 }
 
                 // Fetch a file and decode it.
-                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinRoom?roomID=' + roomID, {signal:  this.FetchController.signal, headers : hdr})
+                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinRoom', {signal:  this.FetchController.signal, method:"POST", headers : hdr, body: formData})
                 .then(decodeOpusResponse)
                 .catch(console.error);
 
@@ -1246,12 +1269,13 @@
                 }
             }
    
-            play(roomID) {
+            play(roomID, Signature) {
                 var hdr={}
                 var self=this;
                 var audioStack = [];
                 var nextTime = 0;
                 var leftByte = null
+            
 
             
                 if(this.playing == true){
@@ -1277,7 +1301,12 @@
 
                 if(this.callUpdateTimeout == null){
                     this.callUpdateTimeout = setInterval( function(){ self.updateGroupInfos(); }, 1000)      
-                }                           
+                } 
+                
+                var formData=new FormData();
+                formData.append("roomID", roomID);
+                formData.append("format", 'wav');
+                
 
                 if(this.server.token != null)
                 {
@@ -1286,9 +1315,10 @@
                 else
                 {
                     hdr = { 'PKey': this.pubkey};
+                    formData.append("Signature", Signature);
                 }
 
-                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinRoom?format=wav&roomID=' + roomID, { signal:  this.FetchController.signal,  headers : hdr } ).then(function(response) {
+                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinRoom', { signal:  this.FetchController.signal, method:"POST",  headers : hdr, body : formData } ).then(function(response) {
 
                     var contentType =''
 
@@ -1299,7 +1329,9 @@
 
                     if(contentType != 'audio/wav')
                     {
-                        alert('wrong content type '+contentType)
+                        response.text().then(function (text) {
+                            alert('wrong content type '+text)
+                        });
                         return;
                     }
 
