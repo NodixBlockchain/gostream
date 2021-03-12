@@ -46,7 +46,9 @@ type outputChannel struct {
 }
 
 type Room struct {
-	id       int
+	id      int
+	creator *ecdsa.PublicKey
+
 	name     string
 	desc     string
 	RoomType string
@@ -145,6 +147,94 @@ func (r *Room) addClientPKey(w http.ResponseWriter, pubkey *ecdsa.PublicKey) int
 	return newClientid
 }
 
+func (r *Room) getClient(clientId int) *roomClient {
+
+	r.clientsMut.Lock()
+
+	defer r.clientsMut.Unlock()
+
+	for i := 0; i < len(r.clients); i++ {
+
+		if r.clients[i].id == clientId {
+			return r.clients[i]
+		}
+	}
+
+	return nil
+}
+
+type AudioConf struct {
+	mic    int
+	hds    int
+	pubkey *ecdsa.PublicKey
+}
+
+func (r *Room) roomMembers() map[string]*AudioConf {
+
+	var connected map[string]*AudioConf = make(map[string]*AudioConf)
+
+	r.inputMut.Lock()
+	for _, input := range r.inputs {
+		connected[hashPubkey(input.pubkey)] = &AudioConf{mic: 1, hds: 0, pubkey: input.pubkey}
+	}
+	r.inputMut.Unlock()
+
+	r.clientsMut.Lock()
+	for _, client := range r.clients {
+
+		if connected[hashPubkey(client.pubkey)] == nil {
+			connected[hashPubkey(client.pubkey)] = &AudioConf{mic: 0, hds: 1, pubkey: client.pubkey}
+		} else {
+			connected[hashPubkey(client.pubkey)].hds = 1
+		}
+	}
+	r.clientsMut.Unlock()
+	return connected
+}
+
+func (r *Room) updateAudioConfPKey(pubkey *ecdsa.PublicKey) error {
+
+	var mic, hds int
+	var okeys map[string]int
+
+	okeys = make(map[string]int)
+
+	mic = 0
+	hds = 0
+
+	r.inputMut.Lock()
+	for _, input := range r.inputs {
+		if input.pubkey.Equal(pubkey) {
+			mic = 1
+		} else {
+			okeys[hashPubkey(input.pubkey)] = 1
+		}
+	}
+	r.inputMut.Unlock()
+
+	r.clientsMut.Lock()
+	for _, client := range r.clients {
+		if client.pubkey.Equal(pubkey) {
+			hds = 1
+		} else {
+			okeys[hashPubkey(client.pubkey)] = 1
+		}
+	}
+	r.clientsMut.Unlock()
+
+	msgClientsMut.Lock()
+
+	defer msgClientsMut.Unlock()
+
+	for i := 0; i < len(messageClients); i++ {
+
+		if okeys[hashPubkey(messageClients[i].pubKey)] != 0 {
+			messageClients[i].channel <- Message{messageType: 6, roomID: r.id, audioOut: hds, audioIn: mic, fromPubKey: pubkey}
+		}
+	}
+	return nil
+}
+
 func (r *Room) writeClientChannel(buf clientBuffer) error {
 
 	r.clientsMut.Lock()
@@ -160,22 +250,6 @@ func (r *Room) writeClientChannel(buf clientBuffer) error {
 	}
 
 	r.clientsMut.Unlock()
-
-	return nil
-}
-
-func (r *Room) getClient(clientId int) *roomClient {
-
-	r.clientsMut.Lock()
-
-	defer r.clientsMut.Unlock()
-
-	for i := 0; i < len(r.clients); i++ {
-
-		if r.clients[i].id == clientId {
-			return r.clients[i]
-		}
-	}
 
 	return nil
 }
@@ -201,6 +275,7 @@ func (r *Room) removeClient(id int) {
 	for idx, client := range r.clients {
 
 		if client.id == id {
+			close(r.clients[idx].channel)
 			r.clients[idx] = r.clients[len(r.clients)-1]
 			r.clients = r.clients[:len(r.clients)-1]
 			break

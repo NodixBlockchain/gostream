@@ -16,12 +16,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-//<\?php[' ']+echo[' ']+site_url\(["'"]([^']*)["'"][^)]*\);?[' ']+\?>
-//<\?php[' ']+echo[' ']+base_url\(["'"]([^']*)["'"][^)]*\);?[' ']+\?>
-//<\?php[' ']+echo[' ']+\$[^\[]*\[([^;]*)\];?[' ']*\?>
-
 type Message struct {
 	messageType int
+	roomID      int
 
 	challenge         string
 	answer            string
@@ -39,7 +36,7 @@ type messageClient struct {
 	pubKey *ecdsa.PublicKey
 }
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: false}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
 //var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
 
@@ -120,31 +117,43 @@ func messages(w http.ResponseWriter, r *http.Request) {
 			messageHeader = "event: answer2\ndata: "
 		case 6:
 			messageHeader = "event: setAudioConf\ndata: "
+		case 8:
+			messageHeader = "event: newRoom\ndata: "
+
 		}
 
 		messageBody = "{"
 
-		if message.fromUID != 0 {
-			messageBody += "\"from\": " + strconv.Itoa(message.fromUID)
-
+		if message.messageType == 8 {
+			messageBody += "\"roomid\": " + strconv.Itoa(message.roomID)
 		} else {
 
-			if message.messageType != 1 {
-				messageBody += "\"answer\": \"" + message.answer + "\","
+			if message.fromUID != 0 {
+				messageBody += "\"from\": " + strconv.Itoa(message.fromUID)
+
+			} else {
+
+				if message.messageType != 1 {
+					messageBody += "\"answer\": \"" + message.answer + "\","
+				}
+
+				if message.messageType != 2 {
+					messageBody += "\"challenge\": \"" + message.challenge + "\","
+				}
+
+				messageBody += "\"from\": \"" + hex.EncodeToString(elliptic.MarshalCompressed(message.fromPubKey.Curve, message.fromPubKey.X, message.fromPubKey.Y)) + "\""
 			}
 
-			if message.messageType != 2 {
-				messageBody += "\"challenge\": \"" + message.challenge + "\","
+			if message.messageType == 6 {
+
+				if message.roomID > 0 {
+					messageBody += ",\"roomid\": \"" + strconv.Itoa(message.roomID) + "\""
+				}
+
+				messageBody += ",\"in\": \"" + strconv.Itoa(message.audioIn) + "\""
+				messageBody += ",\"out\": \"" + strconv.Itoa(message.audioOut) + "\""
 			}
-
-			messageBody += "\"from\": \"" + hex.EncodeToString(elliptic.MarshalCompressed(message.fromPubKey.Curve, message.fromPubKey.X, message.fromPubKey.Y)) + "\""
 		}
-
-		if message.messageType == 6 {
-			messageBody += ",\"in\": \"" + strconv.Itoa(message.audioIn) + "\""
-			messageBody += ",\"out\": \"" + strconv.Itoa(message.audioOut) + "\""
-		}
-
 		messageBody += "}"
 
 		nWrote, err := w.Write([]byte(messageHeader))
@@ -181,7 +190,6 @@ func messages(w http.ResponseWriter, r *http.Request) {
 		log.Printf("lost messages client (%x) \r\n", newMessageClient.pubKey)
 		removeMsgClientPKey(newMessageClient.pubKey)
 	}
-
 }
 
 func grabRoom(roomId int) *Room {
@@ -209,6 +217,59 @@ func grabRoom(roomId int) *Room {
 
 	newRoom = &Room{id: roomId, name: "my room", desc: "", RoomType: "", inputs: make([]*inputChannel, 0, 128), output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
 	newRoom.ticker = time.NewTicker(time.Millisecond * time.Duration(latencyMS))
+
+	go func(myroom *Room) {
+
+		for t := range myroom.ticker.C {
+
+			if !myroom.isActive() {
+				continue
+			}
+
+			var buffers = myroom.mixOutputChannel(t)
+			for _, mybuf := range buffers {
+				myroom.writeClientChannel(mybuf)
+			}
+		}
+	}(newRoom)
+
+	roomList = append(roomList, newRoom)
+
+	return newRoom
+}
+
+func grabRoomPkey(roomName string, pubkey *ecdsa.PublicKey) *Room {
+
+	var newRoom *Room = nil
+	var maxId = 1
+
+	roomsMut.Lock()
+
+	defer roomsMut.Unlock()
+
+	//if room already exist return it
+
+	for i := 0; i < len(roomList); i++ {
+
+		if roomList[i].id > maxId {
+			maxId = roomList[i].id
+		}
+
+		if roomList[i].name == roomName {
+			return roomList[i]
+		}
+	}
+
+	//create new room
+
+	sampleRate := 48000
+	channels := 1
+	latencyMS := 100
+
+	newRoom = &Room{id: maxId + 1, creator: pubkey, name: roomName, desc: "no desc", RoomType: "no type", inputs: make([]*inputChannel, 0, 128), output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
+	newRoom.ticker = time.NewTicker(time.Millisecond * time.Duration(latencyMS))
+
+	sendMsg(Message{messageType: 8, roomID: newRoom.id})
 
 	go func(myroom *Room) {
 
@@ -305,6 +366,82 @@ func keyXCHG(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("content-type", "application/json")
 	w.Write([]byte("{\"pubkey\" : \"" + hex.EncodeToString(myk) + "\"}"))
+
+}
+
+func listRoom(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+
+	roomsJSON := "["
+	first := 1
+
+	roomsMut.Lock()
+	for i := 0; i < len(roomList); i++ {
+
+		if first == 0 {
+			roomsJSON += ","
+		}
+		roomsJSON += "{ \"id\" : " + strconv.Itoa(roomList[i].id) + ", \"name\" : \"" + roomList[i].name + "\", \"desc\" : \"" + roomList[i].desc + "\"}"
+
+		first = 0
+	}
+	roomsMut.Unlock()
+
+	roomsJSON += "]"
+
+	w.Header().Set("Content-type", "application/json")
+	w.Write([]byte(roomsJSON))
+
+}
+
+func listMembers(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
+
+	roomId, err := strconv.Atoi(r.FormValue("roomID"))
+	if err != nil {
+		http.Error(w, "bad room id", http.StatusInternalServerError)
+		return
+	}
+
+	roomsMut.Lock()
+
+	defer roomsMut.Unlock()
+
+	//if room already exist return it
+
+	for i := 0; i < len(roomList); i++ {
+
+		if roomList[i].id == roomId {
+			members := roomList[i].roomMembers()
+			first := 1
+
+			membersJSON := "["
+
+			for _, cnf := range members {
+
+				if first == 0 {
+					membersJSON += ","
+				} else {
+					first = 0
+				}
+
+				mypubHEX := hex.EncodeToString(elliptic.MarshalCompressed(privateKey.Curve, cnf.pubkey.X, cnf.pubkey.Y))
+
+				membersJSON += "{ \"pubkey\" : \"" + mypubHEX + "\", \"mic\" : " + strconv.Itoa(cnf.mic) + ", \"hds\" : " + strconv.Itoa(cnf.hds) + "}"
+			}
+
+			membersJSON += "]"
+			w.Header().Set("Content-type", "application/json")
+			w.Write([]byte(membersJSON))
+			return
+
+		}
+	}
+
+	http.Error(w, "room not found", 500)
+	return
 
 }
 
@@ -612,27 +749,15 @@ func (wsh wsCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var token, format string
+	var mypub *ecdsa.PublicKey
 	var newClientId, roomID int
+	var room *Room
 
 	w.Header().Set("Access-Control-Allow-Origin", mysite.siteOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "PKey,CSRFToken")
 
 	if r.Method != "POST" {
 		w.WriteHeader(200)
-		return
-	}
-
-	roomID, err = strconv.Atoi(r.FormValue("roomID"))
-
-	if err != nil {
-		http.Error(w, "bad room id", http.StatusInternalServerError)
-		return
-	}
-
-	room := grabRoom(roomID)
-
-	if room == nil {
-		http.Error(w, "room not found", http.StatusInternalServerError)
 		return
 	}
 
@@ -656,6 +781,13 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		roomID, err = strconv.Atoi(r.FormValue("roomID"))
+
+		if err != nil {
+			http.Error(w, "bad room id", http.StatusInternalServerError)
+			return
+		}
+
 		err = mysite.newListener(roomID, token, 1)
 		if err != nil {
 			log.Printf("API mysite.newListener(%d,%s,1) \r\n", roomID, token)
@@ -665,13 +797,20 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		room = grabRoom(roomID)
+
+		if room == nil {
+			http.Error(w, "room not found", http.StatusInternalServerError)
+			return
+		}
+
 		newClientId = room.addClient(w, userid)
 
 		log.Printf("new client : %d in room [%d] %s using token '%s'", newClientId, room.id, room.name, token)
 
 	} else {
 
-		mypub, err := pubKeyFromText(r.Header.Get("PKey"), "hex")
+		mypub, err = pubKeyFromText(r.Header.Get("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
@@ -695,7 +834,22 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		roomName := r.FormValue("roomID")
+		if len(roomName) < 3 {
+			http.Error(w, "bad roomName", http.StatusInternalServerError)
+			return
+		}
+
+		room = grabRoomPkey(roomName, mypub)
+		if room == nil {
+			http.Error(w, "room not found", http.StatusInternalServerError)
+			return
+		}
+
+		roomID = room.id
 		newClientId = room.addClientPKey(w, mypub)
+
+		room.updateAudioConfPKey(mypub)
 
 		log.Printf("new client : %d in room [%d] %s using pubkey '%x'", newClientId, room.id, room.name, mypub)
 
@@ -709,13 +863,12 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 
 	client := room.getClient(newClientId)
 
-	defer room.removeClient(newClientId)
-
 	e := getEncoder(format, w, room.output)
 	err = e.writeHeader()
 
 	if err != nil {
 		http.Error(w, "error initializing audio encoder  ", http.StatusInternalServerError)
+		room.removeClient(newClientId)
 		return
 	}
 
@@ -726,16 +879,20 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	log.Printf("client : %d leaving room [%d] %s using pubkey", newClientId, room.id, room.name)
+
+	room.removeClient(newClientId)
+
 	if mysite.enable {
 		err = mysite.newListener(roomID, token, 0)
 		if err != nil {
 			log.Printf("API mysite.newListener(%d,%s,0) \r\n", roomID, token)
 			log.Println("error ", err)
-
-			http.Error(w, "mysite.newListener API error", http.StatusForbidden)
-			return
 		}
+	} else {
+		room.updateAudioConfPKey(mypub)
 	}
+
 }
 
 // wsHandler implements the Handler Interface
@@ -745,23 +902,18 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	var token string
-	var myInputId int
-
-	roomID, err := strconv.Atoi(r.FormValue("roomID"))
-
-	if err != nil {
-		http.Error(w, "not room id", http.StatusInternalServerError)
-		return
-	}
-
-	room := grabRoom(roomID)
-
-	if room == nil {
-		http.Error(w, "room not found", http.StatusInternalServerError)
-		return
-	}
+	var myInputId, roomID int
+	var mypub *ecdsa.PublicKey
+	var room *Room
 
 	if mysite.enable {
+
+		roomID, err = strconv.Atoi(r.FormValue("roomID"))
+
+		if err != nil {
+			http.Error(w, "not room id", http.StatusInternalServerError)
+			return
+		}
 
 		token = r.FormValue("token")
 
@@ -781,13 +933,20 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		room = grabRoom(roomID)
+
+		if room == nil {
+			http.Error(w, "room not found", http.StatusInternalServerError)
+			return
+		}
+
 		log.Printf("new audio input in %s using token '%s'\n", room.name, token)
 
 		myInputId = room.addInput(48000, 1, userid)
 
 	} else {
 
-		mypub, err := pubKeyFromText(r.FormValue("PKey"), "hex")
+		mypub, err = pubKeyFromText(r.FormValue("PKey"), "hex")
 		if err != nil {
 			http.Error(w, "bad PKey", http.StatusForbidden)
 			return
@@ -810,9 +969,24 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("new audio input in %s using pubkey '%x'\n", room.name, mypub)
+		roomName := r.FormValue("roomID")
+		if len(roomName) < 3 {
+			http.Error(w, "bad roomName", http.StatusInternalServerError)
+			return
+		}
+
+		room = grabRoomPkey(roomName, mypub)
+		if room == nil {
+			http.Error(w, "room not found", http.StatusInternalServerError)
+			return
+		}
 
 		myInputId = room.addInputPKey(48000, 1, mypub)
+
+		room.updateAudioConfPKey(mypub)
+
+		log.Printf("new audio input %d in %s using pubkey '%x'\n", myInputId, room.name, mypub)
+
 	}
 
 	myinput := room.getInput(myInputId)
@@ -822,8 +996,6 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to add new input to room", http.StatusInternalServerError)
 		return
 	}
-
-	defer room.removeInput(myInputId)
 
 	// upgrader is needed to upgrade the HTTP Connection to a websocket Connection
 	upgrader := &websocket.Upgrader{
@@ -836,6 +1008,7 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wsConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("error upgrading %s", err)
+		room.removeInput(myInputId)
 		return
 	}
 
@@ -853,17 +1026,19 @@ func (wsh wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		myinput.bufMut.Unlock()
 	}
 
-	if mysite.enable {
+	room.removeInput(myInputId)
 
+	if mysite.enable {
 		err = mysite.newInput(roomID, token, 0)
 		if err != nil {
 			log.Printf("API mysite.newInput(%d,%s,0) \r\n", roomID, token)
 			log.Println("error : ", err)
-
-			http.Error(w, "mysite.newInput API error", http.StatusForbidden)
-			return
 		}
+	} else {
+		room.updateAudioConfPKey(mypub)
 	}
+
+	log.Printf("audio input %d leaving %s using pubkey '%x'\n", myInputId, room.name, mypub)
 
 }
 
@@ -972,6 +1147,10 @@ func main() {
 	*/
 
 	router := http.NewServeMux()
+
+	router.HandleFunc("/listRoom", listRoom)
+	router.HandleFunc("/listMembers", listMembers)
+
 	router.Handle("/upRoom", wsHandler{})     //handels websocket connections
 	router.Handle("/upCall", wsCallHandler{}) //handels websocket connections
 

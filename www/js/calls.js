@@ -68,6 +68,8 @@
             return buf.buffer;
         }
 
+        
+
         class StreamServer {
             
             constructor(streamServer, HTTPProto, WSProto){
@@ -79,6 +81,7 @@
                 this.pubkey =null;
                 this.token = null;
                 this.serverChallenge = null;
+                this.eventSource =null;
             }
 
             init( pubkey )
@@ -88,11 +91,118 @@
                 if(pubkey != null)
                 {
                     this.pubkey=pubkey;
+                    this.eventSource = new EventSource(this.HTTPProto+'://'+this.streamServer+'/messages?PKey=' + this.pubkey);
                     return $.ajax({url: this.HTTPProto+'://'+this.streamServer+'/getCallTicket', type : 'GET', headers : { 'PKey' : this.pubkey }, dataType: "text", success: function (challenge) { self.serverChallenge = challenge; } });
                     
                 }else{
+                    this.eventSource = new EventSource(this.HTTPProto+'://'+this.streamServer+'/messages?CSRFtoken=' + this.token);
                     return $.getJSON('http://localhost/Membres/newCRSF', function(result)  { self.token = result.token; });            
                 }
+            }
+
+            getMemberHTML(roomID, member)
+            {
+                var li=document.createElement('li');
+                li.id = "room-"+roomID+"-member-id-"+member.pubkey;
+
+                    var h3=document.createElement('h3');
+                    h3.innerHTML='<span class="key" >'+member.pubkey+'</span>';
+                    li.append(h3);
+
+                    var mic=document.createElement('span');
+                    mic.id = "room-"+roomID+"-member-mic-"+member.pubkey;
+                    mic.className = (member.mic == 1 ) ? 'badge badge-success':'badge badge-danger'
+                    mic.innerHTML='mic';
+                    li.append(mic);
+
+                    var hds=document.createElement('span');
+                    hds.id = "room-"+roomID+"-member-hds-"+member.pubkey;
+                    hds.className = (member.hds == 1 ) ? 'badge badge-success':'badge badge-danger'
+                    hds.innerHTML='hds'
+                    li.append(hds);      
+                return li
+            }
+
+
+            updateMembers(roomID, members)
+            {
+                if(members.length<=0)
+                {
+                  $('#members-group-'+roomID).html('empty');
+                  return
+                }
+
+                var ul=document.createElement('ul');
+                ul.id = "members-"+roomID;
+
+                for(var i=0;i<members.length;i++)
+                {
+                    if(members[i].pubkey == this.pubkey)
+                    {
+                        var li=document.createElement('li');
+                        li.innerHTML='me'
+                        ul.append(li);
+                    }
+                    else
+                        ul.append(this.getMemberHTML(roomID,members[i]));
+                }
+
+                $('#members-group-'+roomID).html(ul);
+            }
+
+            findRoomId(name)
+            {
+                for(var i=0;i<this.groupes.length;i++)
+                {
+                    if(this.groupes[i].name == name)
+                        return this.groupes[i].id;
+                }
+                return 0;
+            }
+
+            updateGroupes(groupes)
+            {
+                var self=this;
+                var ul=document.createElement('ul');
+
+                this.groupes = groupes;
+
+                for(var i=0;i<groupes.length;i++)
+                {
+                    var li=document.createElement('li');
+                    li.id = "goupe-id-"+groupes[i].id;
+                    
+                    if(this.token != null)
+                    {
+                        li.setAttribute('grpid',groupes[i].id);
+                        li.onclick=function(){ $('#group-id').val($(this).attr('grpid')); }
+                    }
+                    else
+                    {
+                        li.setAttribute('grpid',groupes[i].id);
+                        li.setAttribute('grpname',groupes[i].name);
+                        li.onclick=function(){ $('#group-id').val($(this).attr('grpid')); $('#group-name').val($(this).attr('grpname')); }
+                    }
+
+                  
+
+                    var h3=document.createElement('h3');
+                    h3.innerHTML=groupes[i].name;
+                    li.append(h3);
+
+                    var h4=document.createElement('h4');
+                    h4.innerHTML=groupes[i].desc;
+                    li.append(h4);
+
+                    var div=document.createElement('div');
+                    div.id='members-group-'+groupes[i].id
+                    li.append(div);
+
+                    ul.append(li);
+
+                }
+
+                $('#groups').html(ul);
             }
 
             isValidId(DestinationID)
@@ -115,6 +225,20 @@
                     error: function (error) { console.log('ajax error "'+error.responseText +'" on URL : "'+self.HTTPProto + '://'+self.streamServer +'/tokenCheck"'); } 
                 });
             }
+
+            listRoom()
+            {
+                var self=this;
+                $.getJSON(this.HTTPProto + '://'+this.streamServer +'/listRoom', function(data){ self.updateGroupes(data);} );  
+            }
+            
+            listMembers(roomID)
+            {
+                var self=this;
+                $.getJSON(this.HTTPProto + '://'+this.streamServer +'/listMembers?roomID='+roomID, function(data){ self.updateMembers(roomID,data);});  
+            }
+
+            
 
             newCall(DestinationID, Challenge, Signature)
             {
@@ -285,27 +409,24 @@
 
                         self.server.tokenCheck().done(function(){
 
-                            self.eventSource = new EventSource(self.server.HTTPProto+'://'+self.server.streamServer+'/messages?CSRFtoken=' + self.server.token); 
-
-                            self.eventSource.addEventListener('newCall',function(e){self.called(JSON.parse(e.data))});
-                            self.eventSource.addEventListener('declineCall',function(e){self.callDeclined(JSON.parse(e.data))});
-                            self.eventSource.addEventListener('acceptedCall',function(e){self.callAccepted(JSON.parse(e.data))});
-                            self.eventSource.addEventListener('setAudioConf',function(e){self.setAudioConf(JSON.parse(e.data))});
+                            self.server.eventSource.addEventListener('newCall',function(e){self.called(JSON.parse(e.data))});
+                            self.server.eventSource.addEventListener('declineCall',function(e){self.callDeclined(JSON.parse(e.data))});
+                            self.server.eventSource.addEventListener('acceptedCall',function(e){self.callAccepted(JSON.parse(e.data))});
+                            self.server.eventSource.addEventListener('setAudioConf',function(e){self.setAudioConf(JSON.parse(e.data))});
 
                             self.meID = self.server.userID;
                             $('#moi').html( 'moi : ' + self.meID ); 
                         });
            
                     }else{
-                        self.eventSource = new EventSource(self.server.HTTPProto+'://'+self.server.streamServer+'/messages?PKey=' + self.pubkey);
 
-                        self.eventSource.addEventListener('newCall',function(e){self.called(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
-                        self.eventSource.addEventListener('declineCall',function(e){self.callDeclined(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
-                        self.eventSource.addEventListener('acceptedCall',function(e){self.callAccepted(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
-                        self.eventSource.addEventListener('setAudioConf',function(e){self.setAudioConf(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
+                        self.server.eventSource.addEventListener('newCall',function(e){self.called(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
+                        self.server.eventSource.addEventListener('declineCall',function(e){self.callDeclined(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
+                        self.server.eventSource.addEventListener('acceptedCall',function(e){self.callAccepted(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
+                        self.server.eventSource.addEventListener('setAudioConf',function(e){self.setAudioConf(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
 
-                        self.eventSource.addEventListener('answer',function(e){self.answered(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
-                        self.eventSource.addEventListener('answer2',function(e){self.answer2(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
+                        self.server.eventSource.addEventListener('answer',function(e){self.answered(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
+                        self.server.eventSource.addEventListener('answer2',function(e){self.answer2(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
 
                         $('#moi').html( 'moi : <span class="key">' + self.pubkey +'</span>');
                     }
@@ -690,8 +811,6 @@
 
                 
              
-                this.FetchController = new AbortController(); 
-
                 if(this.callStart == null)
                     this.callStart = new Date();
 
@@ -709,21 +828,13 @@
                     formData.append("Signature", Signature);
                 }                    
 
-                try {
-                    // Fetch a file and decode it.
-                    fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall', { method:"post", signal:  this.FetchController.signal, headers : hdr, body: formData})
-                    .then(decodeOpusResponse)
-                    .catch(console.error);
-                }
-                catch(err)
-                {
-                    if (err.name == 'AbortError') { 
-                        
-                    } else {
-                        this.playing = false;
-                    throw err;
-                    }
-                }
+               
+                // Fetch a file and decode it.
+                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall', { method:"post", headers : hdr, body: formData})
+                .then(decodeOpusResponse)
+                .catch(console.error);
+              
+              
 
                 // decode Fetch response
                 function decodeOpusResponse(response) {
@@ -814,7 +925,7 @@
                 if(this.audioContext == null)
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 
-                this.FetchController = new AbortController();
+                
                 this.playing = true;
 
                 if(this.callStart == null)
@@ -835,7 +946,7 @@
                     formData.append("Signature", Signature);
                 }                    
     
-                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall', { method:"POST", signal:  this.FetchController.signal, headers : hdr, body: formData})
+                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinCall', { method:"POST", headers : hdr, body: formData})
                 .then(function(response) {
 
                         if(!response.ok){
@@ -852,7 +963,7 @@
 
                         if(contentType != 'audio/wav')
                         {
-                            response.text().then(function(reponse){
+                            response.body.text().then(function(reponse){
                                 alert('wrong content type '+reponse);
                             });
                             return;
@@ -995,12 +1106,6 @@
 
                 this.playing = false;
 
-                if(this.FetchController)
-                {
-                    this.FetchController.abort();
-                    this.FetchController = null;
-                }
-
             }
 
             stopCall()
@@ -1042,6 +1147,8 @@
                 this.gainNode = null;
                 this.recorder =null;
 
+                this.roomID = 0
+
                 this.totalRecv = 0;
                 this.totalSamplesDecoded = 0;
 
@@ -1063,6 +1170,15 @@
 
                 this.playing = false;
             }
+            hex_to_ascii(str1)
+            {
+                var hex  = str1.toString();
+                var str = '';
+                for (var n = 0; n < hex.length; n += 2) {
+                    str += String.fromCharCode(parseInt(hex.substr(n, 2), 16));
+                }
+                return str;
+            }
 
             updateGroupInfos() 
             { 
@@ -1072,15 +1188,89 @@
                 $('#group-up').html(SzTxt(this.totalSent)) 
                 $('#group-down').html(SzTxt(this.totalRecv)) 
             }
+
+            
+            setAudioConf(data)
+            {
+                console.log(data)
+
+                if($('#room-'+data.roomid+'-member-id-'+data.from).length<=0){
+
+                    if (( data.in == 1) || (data.in == 0))
+                    $("#members-"+data.roomid).append(this.server.getMemberHTML(data.roomid, {pubkey: data.from, mic : data.in, hds: data.out}));
+                    return;
+                }
+
+                if((data.in == 0)&&(data.out == 0))
+                {
+                    $('#room-'+data.roomid+'-member-id-'+data.from).remove();
+                    return;
+                }
+
+                if(data.in == 1)
+                {
+                    $('#room-'+data.roomid+'-member-mic-'+data.from).removeClass('badge-danger');  
+                    $('#room-'+data.roomid+'-member-mic-'+data.from).addClass('badge-success');
+
+                }
+                else
+                {
+                    $('#room-'+data.roomid+'-member-mic-'+data.from).removeClass('badge-success');  
+                    $('#room-'+data.roomid+'-member-mic-'+data.from).addClass('badge-danger');
+                }
+                
+                if(data.out == 1)
+                {
+                    $('#room-'+data.roomid+'-member-hds-'+data.from).removeClass('badge-danger');  
+                    $('#room-'+data.roomid+'-member-hds-'+data.from).addClass('badge-success');
+
+                }
+                else
+                {
+                    $('#room-'+data.roomid+'-member-hds-'+data.from).removeClass('badge-success');  
+                    $('#room-'+data.roomid+'-member-hds-'+data.from).addClass('badge-danger');
+                }            
+            }
             
             initialize(streamServer)
             {
+                var self=this;
                 this.server = streamServer;
-                return this.server.init(this.pubkey);
+                
+                var xhr = this.server.init(this.pubkey);
+
+                xhr.done(function(){
+
+                    if(self.pubkey == null){
+
+                        self.server.tokenCheck().done(function(){
+
+                            self.server.eventSource.addEventListener('newRoom',function(e){self.newRoom(JSON.parse(e.data))});
+                            self.server.eventSource.addEventListener('setAudioConf',function(e){self.setAudioConf(JSON.parse(e.data))});
+   
+
+                            self.meID = self.server.userID;
+                            $('#moi').html( 'moi : ' + self.meID ); 
+                        });
+        
+                    }else{
+
+                        self.server.eventSource.addEventListener('newRoom',function(e){self.newRoom(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
+                        self.server.eventSource.addEventListener('setAudioConf',function(e){self.setAudioConf(JSON.parse(self.hex_to_ascii(JSON.parse(e.data))))});
+
+                        $('#moi').html( 'moi : <span class="key">' + self.pubkey +'</span>');
+                    }
+                })
+
+                return xhr;
             }
 
+            newRoom(data)
+            {
+                this.server.listRoom()
+            }
             
-            startReccording(roomID, Signature)
+            startReccording(roomID)
             {
                 var self=this;
                 if(this.recording == true)
@@ -1098,9 +1288,14 @@
                 if( this.server.token != null){
                     this.webSocket = new WebSocket(this.server.WSProto +'://'+this.server.streamServer + '/upRoom?token=' + this.server.token + '&roomID=' + roomID);
                 }else{
+
+                    var Signature = this.key.sign(this.enc.encode(this.server.serverChallenge)).toDER('hex');                    
                     this.webSocket = new WebSocket(this.server.WSProto +'://'+this.server.streamServer + '/upRoom?roomID=' + roomID + '&PKey=' + this.pubkey + '&Signature=' +Signature );
                 }
 
+
+                if(this.startTime == null)
+                    this.startTime = new Date();
 
                 
                 this.webSocket.binaryType = 'arraybuffer';
@@ -1121,6 +1316,12 @@
                     navigator.mediaDevices.getUserMedia ({audio: true, video: false}).then(function(stream) {
 
                         self.stream = stream;
+
+                        if(self.roomID == 0)
+                        {
+                            self.roomID = self.server.findRoomId(roomID);
+                            self.server.listMembers(self.roomID); 
+                        }
 
                         self.audioInput = self.audioContext.createMediaStreamSource(stream);
                         self.gainNode = self.audioContext.createGain();
@@ -1148,7 +1349,7 @@
                 };
             }
 
-            playOpus(roomID, Signature){
+            playOpus(roomID){
 
                 var hdr={}
                 var self=this;
@@ -1167,8 +1368,6 @@
 
                 if(this.audioContext == null)
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
-                this.FetchController = new AbortController(); 
 
                 if(this.startTime == null)
                     this.startTime = new Date();
@@ -1191,11 +1390,14 @@
                 else
                 {
                     hdr = { 'PKey': this.pubkey};
+
+                    var Signature = this.key.sign(this.enc.encode(this.server.serverChallenge)).toDER('hex');
+
                     formData.append("Signature", Signature);                
                 }
 
                 // Fetch a file and decode it.
-                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinRoom', {signal:  this.FetchController.signal, method:"POST", headers : hdr, body: formData})
+                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinRoom', { method:"POST", headers : hdr, body: formData})
                 .then(decodeOpusResponse)
                 .catch(console.error);
 
@@ -1220,6 +1422,14 @@
                         alert(response.body)
                         return;
                     }
+
+                    if(self.roomID == 0)
+                    {
+                        self.roomID = self.server.findRoomId(roomID);
+                        self.server.listMembers(self.roomID); 
+                    }
+
+                    
 
                     const decoder = new OpusStreamDecoder({onDecode});
                     const reader = response.body.getReader();
@@ -1269,7 +1479,7 @@
                 }
             }
    
-            play(roomID, Signature) {
+            play(roomID) {
                 var hdr={}
                 var self=this;
                 var audioStack = [];
@@ -1291,7 +1501,6 @@
                 if(this.audioContext == null)
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-                this.FetchController = new AbortController();
 
                 if(this.startTime == null)
                     this.startTime = new Date();
@@ -1315,10 +1524,15 @@
                 else
                 {
                     hdr = { 'PKey': this.pubkey};
+
+                    var Signature = this.key.sign(this.enc.encode(this.server.serverChallenge)).toDER('hex');
                     formData.append("Signature", Signature);
                 }
 
-                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinRoom', { signal:  this.FetchController.signal, method:"POST",  headers : hdr, body : formData } ).then(function(response) {
+                try {
+
+                fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinRoom', { method:"POST",  headers : hdr, body : formData } )
+                .then(function(response) {
 
                     var contentType =''
 
@@ -1335,15 +1549,21 @@
                         return;
                     }
 
+                    if(self.roomID == 0)
+                    {
+                        self.roomID = roomID;
+                        self.server.listMembers(self.roomID); 
+                    }
+
+
                     var reader = response.body.getReader();
 
                     function myread(){
 
                         reader.read().then(({ value, done })=> {
 
-                            if(self.playing == false)return
-
-                            if ((done)||(self.calling == false)){
+                            if ((done)||(self.playing == false)||(self.calling == false)){
+                                reader.cancel();
                                 return;
                             }
 
@@ -1417,6 +1637,19 @@
                     }
                     myread();
                 })
+                .catch(function(err){ alert('catch 2 '+err);});
+                }
+                catch(err)
+                {
+                    alert('catch '+err)
+                    if (err.name == 'AbortError') { 
+                        
+                    } else {
+                        this.playing = false;
+                    throw err;
+                    }
+                }
+
             }
 
             stoplaying()
@@ -1431,16 +1664,13 @@
                     clearInterval(this.callUpdateTimeout);
                     this.callUpdateTimeout = null;
                     this.startTime = null;
+                    $('#members-group-'+this.roomID).empty();
+                    this.roomID = 0;
                 }
                 
                 $('#play').removeClass('badge-success');  
                 $('#play').addClass('badge-danger');
 
-                if(this.FetchController)
-                {
-                    this.FetchController.abort();
-                    this.FetchController = null;
-                }
             }
 
             stopReccording()
@@ -1458,6 +1688,8 @@
                     clearInterval(this.callUpdateTimeout);
                     this.callUpdateTimeout = null;
                     this.startTime = null;
+                    $('#members-group-'+this.roomID).empty();
+                    this.roomID = 0;
                 }
 
                 if(this.stream)

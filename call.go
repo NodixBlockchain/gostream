@@ -93,6 +93,19 @@ func findCall(from int, to int) *Call {
 
 	return nil
 }
+
+func sendMsg(message Message) {
+
+	msgClientsMut.Lock()
+
+	defer msgClientsMut.Unlock()
+
+	for i := 0; i < len(messageClients); i++ {
+		messageClients[i].channel <- message
+	}
+
+}
+
 func sendMsgClient(clientId int, message Message) error {
 
 	msgClientsMut.Lock()
@@ -340,7 +353,7 @@ func (c *Call) updateAudioConf(userid int) error {
 		hds = 0
 	}
 
-	sendMsgClient(otherID, Message{messageType: 6, fromUID: userid, fromPubKey: nil, audioIn: mic, audioOut: hds})
+	sendMsgClient(otherID, Message{messageType: 6, roomID: 0, audioIn: mic, audioOut: hds, fromUID: userid, fromPubKey: nil})
 	return nil
 }
 
@@ -371,7 +384,7 @@ func (c *Call) updateAudioConfPKey(pubkey *ecdsa.PublicKey) error {
 		hds = 0
 	}
 
-	sendMsgClientPkey(otherKey, Message{messageType: 6, fromUID: 0, fromPubKey: pubkey, audioIn: mic, audioOut: hds})
+	sendMsgClientPkey(otherKey, Message{messageType: 6, roomID: 0, audioIn: mic, audioOut: hds, fromUID: 0, fromPubKey: pubkey})
 	return nil
 }
 
