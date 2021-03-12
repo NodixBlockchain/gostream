@@ -1551,7 +1551,7 @@
 
                     if(self.roomID == 0)
                     {
-                        self.roomID = roomID;
+                        self.roomID = self.server.findRoomId(roomID);
                         self.server.listMembers(self.roomID); 
                     }
 
