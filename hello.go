@@ -36,7 +36,7 @@ type messageClient struct {
 	pubKey *ecdsa.PublicKey
 }
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: false}
 
 //var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
 
@@ -870,6 +870,10 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "error initializing audio encoder  ", http.StatusInternalServerError)
 		room.removeClient(newClientId)
 		return
+	}
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 
 	for {
