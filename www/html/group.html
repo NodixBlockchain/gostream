@@ -13,6 +13,9 @@
 
 <style>
     .key {font-size:12px; font-weight:bold; background-color: rgba(200,200,200,0.75); border: 1px solid black; padding:2px}
+    .group-box{margin:8px;padding:8px;border-radius: 8px; background-color:rgba(128,128,128,0.6); border: 1px solid black;}
+    .group-box-selected{background-color:rgba(128,200,128,0.8);}
+    .group-box h3{border-bottom:dashed 4px gray}
 </style>
 
 <body>
@@ -53,19 +56,12 @@
 
     </script>
 
-    
-    <div class="container">
-        <h3>Groups</h3>
-        <div  id="groups"></div>
-    </div>
-    <hr/>
     <div class="container">
         <input id="group-id" type="hidden" value="" />
         <div class="row text-center">
             <div class="col">me : <span id="moi"></span></div>
         </div>
-        <hr/>
-        <div class="row">
+             <div class="row">
             <div class="col"><input type="text" name="name" id="group-name" value="new group" /></div>
             <div class="col" id="group-time">00:00:00</div>
             <div class="col">
@@ -78,7 +74,15 @@
             </div> 
             <div class="col" id="group-down"> - </div>            
         </div>
-    </div>        
+    </div>     
+
+    <hr/>
+
+    <h3>Groups</h3>
+    <div class="container" id="groups">
+    </div>
+
+       
  
  
 

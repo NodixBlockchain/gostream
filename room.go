@@ -248,8 +248,10 @@ func (r *Room) writeClientChannel(buf clientBuffer) error {
 	}
 	r.clientsMut.Unlock()
 
-	if len(client.channel) < 2 {
-		client.channel <- buf.buffer
+	if client.cclose == false {
+		if len(client.channel) < 2 {
+			client.channel <- buf.buffer
+		}
 	}
 
 	return nil

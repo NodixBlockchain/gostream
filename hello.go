@@ -140,6 +140,25 @@ func messages(w http.ResponseWriter, r *http.Request) {
 
 		if message.messageType == 8 {
 			messageBody += "\"roomid\": " + strconv.Itoa(message.roomID)
+
+			var room *Room = nil
+
+			roomsMut.Lock()
+			for i := 0; i < len(roomList); i++ {
+
+				if roomList[i].id == message.roomID {
+					room = roomList[i]
+				}
+			}
+			roomsMut.Unlock()
+
+			if room != nil {
+				messageBody += ",\"name\": \"" + room.name + "\""
+				messageBody += ",\"type\": \"" + room.RoomType + "\""
+				messageBody += ",\"desc\": \"" + room.desc + "\""
+				messageBody += ",\"count\": 1"
+			}
+
 		} else {
 
 			if message.fromUID != 0 {
@@ -396,10 +415,12 @@ func listRoom(w http.ResponseWriter, r *http.Request) {
 	roomsMut.Lock()
 	for i := 0; i < len(roomList); i++ {
 
+		m := roomList[i].roomMembers()
+
 		if first == 0 {
 			roomsJSON += ","
 		}
-		roomsJSON += "{ \"id\" : " + strconv.Itoa(roomList[i].id) + ", \"name\" : \"" + roomList[i].name + "\", \"desc\" : \"" + roomList[i].desc + "\"}"
+		roomsJSON += "{ \"id\" : " + strconv.Itoa(roomList[i].id) + ", \"name\" : \"" + roomList[i].name + "\", \"desc\" : \"" + roomList[i].desc + "\", \"count\" : " + strconv.Itoa(len(m)) + "}"
 
 		first = 0
 	}

@@ -1090,9 +1090,9 @@
                 var li=document.createElement('li');
                 li.id = "room-"+this.roomID+"-member-id-"+member.pubkey;
 
-                    var h3=document.createElement('h3');
-                    h3.innerHTML='<span class="key" >'+member.pubkey+'</span>';
-                    li.append(h3);
+                    var h5=document.createElement('h5');
+                    h5.innerHTML='<span class="key" >'+member.pubkey+'</span>';
+                    li.append(h5);
 
                     var mic=document.createElement('span');
                     mic.id = "room-"+this.roomID+"-member-mic-"+member.pubkey;
@@ -1115,14 +1115,21 @@
 
                 if($('#room-'+data.roomid+'-member-id-'+data.from).length<=0){
 
-                    if (( data.in == 1) || (data.in == 0))
-                    $("#members-"+data.roomid).append(this.getMemberHTML({pubkey: data.from, mic : data.in, hds: data.out}));
+                    if (( data.in == 1) || (data.out == 1))
+                    {
+                        var cnt = parseInt($('#count-group-'+data.roomid).html())
+                        $('#count-group-'+data.roomid).html(cnt+1)
+                        $("#members-"+data.roomid).append(this.getMemberHTML({pubkey: data.from, mic : data.in, hds: data.out}));
+                    }
                     return;
                 }
 
                 if((data.in == 0)&&(data.out == 0))
                 {
                     $('#room-'+data.roomid+'-member-id-'+data.from).remove();
+                    var cnt = parseInt($('#count-group-'+data.roomid).html())
+                    $('#count-group-'+data.roomid).html(cnt-1)
+
                     return;
                 }
 
@@ -1196,16 +1203,20 @@
                 return 0;
             }
 
-            updateMembers(members)
+            updateMembers(members, roomID=null)
             {
+                if(roomID==null)
+                    roomID=this.roomID;
+
                 if(members.length<=0)
                 {
-                  $('#members-group-'+this.roomID).html('empty');
+                  $('#members-group-'+roomID).html('empty');
                   return
                 }
 
                 var ul=document.createElement('ul');
-                ul.id = "members-"+this.roomID;
+                ul.id = "members-"+roomID;
+                ul.className="text-left"
 
                 for(var i=0;i<members.length;i++)
                 {
@@ -1219,66 +1230,88 @@
                         ul.append(this.getMemberHTML(members[i]));
                 }
 
-                $('#members-group-'+this.roomID).html(ul);
+                $('#members-group-'+roomID).html(ul);
+            }
+
+            getGroupHTML(Group)
+            {
+                var row=document.createElement('div');
+                row.className='row p-0 m-0'
+
+                var group =document.createElement('div');
+                    group.id = "goupe-id-"+Group.id;
+
+                    group.className = "col text-center group-box"
+
+                    if(Group.id == this.roomID)
+                        group.className+=' group-box-selected'
+
+                    
+                    if(this.token != null)
+                    {
+                        group.setAttribute('grpid',Group.id);
+                        group.onclick=function(){ $('#group-id').val($(this).attr('grpid')); }
+                    }
+                    else
+                    {
+                        var self=this;
+                        group.setAttribute('grpid',Group.id);
+                        group.setAttribute('grpname',Group.name);
+                        group.onclick=function(){ var roomID=$(this).attr('grpid'); $('#group-id').val(roomID); $('#group-name').val($(this).attr('grpname')); self.server.listMembers(roomID).done(function(data){  $('#count-group-'+roomID).html(data.length); self.updateMembers(data,roomID);}); }
+                    }
+
+                    
+
+                    var h3=document.createElement('h3');
+                    h3.innerHTML=Group.name;
+
+                    var span=document.createElement('span');
+                    span.id='count-group-'+Group.id
+                    span.innerHTML = Group.count;
+                    h3.append(' (');
+                    h3.append(span);
+                    h3.append(') ');
+                    
+
+                    group.append(h3);
+
+
+                    var h5=document.createElement('h5');
+                    h5.innerHTML=Group.desc;
+                    group.append(h5);
+
+                    var div=document.createElement('div');
+                    div.id='members-group-'+Group.id
+                    group.append(div);
+                row.append(group)
+
+                return row
             }
 
 
             updateGroupes(groupes)
             {
-                var ul=document.createElement('ul');
-
                 this.groupes = groupes;
 
+                $('#groups').empty()
                 for(var i=0;i<groupes.length;i++)
                 {
-                    var li=document.createElement('li');
-                    li.id = "goupe-id-"+groupes[i].id;
-                    
-                    if(this.token != null)
-                    {
-                        li.setAttribute('grpid',groupes[i].id);
-                        li.onclick=function(){ $('#group-id').val($(this).attr('grpid')); }
-                    }
-                    else
-                    {
-                        li.setAttribute('grpid',groupes[i].id);
-                        li.setAttribute('grpname',groupes[i].name);
-                        li.onclick=function(){ $('#group-id').val($(this).attr('grpid')); $('#group-name').val($(this).attr('grpname')); }
-                    }
-
-                    var h3=document.createElement('h3');
-                    h3.innerHTML=groupes[i].name;
-                    li.append(h3);
-
-                    var h4=document.createElement('h4');
-                    h4.innerHTML=groupes[i].desc;
-                    li.append(h4);
-
-                    var div=document.createElement('div');
-                    div.id='members-group-'+groupes[i].id
-                    li.append(div);
-
-                    ul.append(li);
-
+                    var group= this.getGroupHTML(groupes[i]);
+                    $('#groups').append(group);
                 }
-
-                $('#groups').html(ul);
             }
 
             newRoom(data)
             {
-                var self=this;
-                this.server.listRoom().done(function(grp_data){
+                var mgroup = {id:data.roomid, name:data.name, type:data.type, count:data.count, desc:data.desc};
+                
+                this.groupes[this.groupes.length] = mgroup;
 
-                     self.updateGroupes(grp_data); 
+                if(this.roomName != null)
+                    this.roomID = this.findRoomId(this.roomName);
 
-                     if(self.roomName != null)
-                        self.roomID = self.findRoomId(self.roomName);
-
-                     if(self.roomID!=0){
-                        self.server.listMembers(self.roomID).done(function(members_data){ self.updateMembers(members_data); });
-                    }
-                })
+                var group= this.getGroupHTML(mgroup);
+                $('#groups').append(group);
             }
             
             
@@ -1336,8 +1369,17 @@
                             }else{
                                 self.roomName = roomID;
                                 self.roomID = self.findRoomId(self.roomName);
+  
+                                $("#goupe-id-"+self.roomID).addClass('group-box-selected')
                             }
-                            self.server.listMembers(self.roomID).done(function(data){ self.updateMembers(data);});
+                            self.server.listMembers(self.roomID).done(function(data)
+                            { 
+                                self.updateMembers(data);
+                                var mygrp=$("#goupe-id-"+self.roomID);
+                                mygrp.remove();
+                                $('#groups').prepend(mygrp);
+                            
+                            });
                         }
 
                         self.audioInput = self.audioContext.createMediaStreamSource(stream);
@@ -1447,8 +1489,15 @@
                         }else{
                             self.roomName = roomID;
                             self.roomID = self.findRoomId(self.roomName);
+                            $("#goupe-id-"+self.roomID).addClass('group-box-selected')
                         }
-                        self.server.listMembers(self.roomID).done(function(data){ self.updateMembers(data);});
+                        self.server.listMembers(self.roomID).done(function(data)
+                        { 
+                            self.updateMembers(data);
+                            var mygrp=$("#goupe-id-"+self.roomID);
+                            mygrp.remove();
+                            $('#groups').prepend(mygrp);
+                        });
                     }
 
                     
@@ -1578,8 +1627,17 @@
                         }else{
                             self.roomName = roomID;
                             self.roomID = self.findRoomId(self.roomName);
+
+                            $("#goupe-id-"+self.roomID).addClass('group-box-selected')
                         }
-                        self.server.listMembers(self.roomID).done(function(data){ self.updateMembers(data);});
+                        self.server.listMembers(self.roomID).done(function(data){ 
+                            self.updateMembers(data);
+                            var mygrp=$("#goupe-id-"+self.roomID);
+                            mygrp.remove();
+                            $('#groups').prepend(mygrp);
+
+                        
+                        });
                     }
 
                     var reader = response.body.getReader();
@@ -1691,6 +1749,7 @@
                     this.callUpdateTimeout = null;
                     this.startTime = null;
                     $('#members-group-'+this.roomID).empty();
+                    $("#goupe-id-"+this.roomID).removeClass('group-box-selected')
                     this.roomID = 0;
                     this.roomName = null;
                 }
@@ -1716,8 +1775,11 @@
                     this.callUpdateTimeout = null;
                     this.startTime = null;
                     $('#members-group-'+this.roomID).empty();
+                    $("#goupe-id-"+this.roomID).removeClass('group-box-selected')
+
                     this.roomID = 0;
                     this.roomName = null;
+                    
                 }
 
                 if(this.stream)
