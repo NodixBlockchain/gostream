@@ -27,6 +27,7 @@ type inputChannel struct {
 
 type roomClient struct {
 	id         int
+	cclose     bool
 	clientConn http.ResponseWriter
 	channel    chan []int16
 	userID     int
@@ -237,19 +238,19 @@ func (r *Room) updateAudioConfPKey(pubkey *ecdsa.PublicKey) error {
 
 func (r *Room) writeClientChannel(buf clientBuffer) error {
 
+	var client *roomClient
+
 	r.clientsMut.Lock()
-
 	for i := 0; i < len(r.clients); i++ {
-
 		if r.clients[i].id == buf.clientid {
-			if len(r.clients[i].channel) < 2 {
-				r.clients[i].channel <- buf.buffer
-			}
-			break
+			client = r.clients[i]
 		}
 	}
-
 	r.clientsMut.Unlock()
+
+	if len(client.channel) < 2 {
+		client.channel <- buf.buffer
+	}
 
 	return nil
 }
@@ -275,7 +276,10 @@ func (r *Room) removeClient(id int) {
 	for idx, client := range r.clients {
 
 		if client.id == id {
-			close(r.clients[idx].channel)
+
+			if client.cclose == false {
+				close(r.clients[idx].channel)
+			}
 			r.clients[idx] = r.clients[len(r.clients)-1]
 			r.clients = r.clients[:len(r.clients)-1]
 			break

@@ -36,7 +36,7 @@ type messageClient struct {
 	pubKey *ecdsa.PublicKey
 }
 
-var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: false}
+var mysite site = site{siteURL: "http://172.16.230.1", siteOrigin: "http://172.16.230.1", enable: true}
 
 //var mysite site = site{siteURL: "http://localhost", siteOrigin: "http://localhost", enable: true}
 
@@ -98,8 +98,22 @@ func messages(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 
+	cclose := false
+
+	notify := w.(http.CloseNotifier).CloseNotify()
+	go func() {
+		<-notify
+		println("The client closed the connection prematurely. Cleaning up.")
+		cclose = true
+		close(newMessageClient.channel)
+	}()
+
 	for {
 		message := <-newMessageClient.channel
+
+		if cclose == true {
+			break
+		}
 
 		var messageBody string
 		var messageHeader string
@@ -158,12 +172,13 @@ func messages(w http.ResponseWriter, r *http.Request) {
 
 		nWrote, err := w.Write([]byte(messageHeader))
 		if (err != nil) || (nWrote < len(messageHeader)) {
-			break
+			return
 		}
+
 		if message.fromUID != 0 {
 			nWrote, err = w.Write([]byte(messageBody + "\n\n"))
 			if (err != nil) || (nWrote < len(messageBody+"\n\n")) {
-				break
+				return
 			}
 		} else {
 
@@ -172,10 +187,9 @@ func messages(w http.ResponseWriter, r *http.Request) {
 			hex.Encode(messageBodyHex, []byte(messageBody))
 
 			nWrote, err = w.Write([]byte("\"" + string(messageBodyHex) + "\"\n\n"))
-			if (err != nil) || (nWrote < len(messageBody+"\n\n")) {
-				break
+			if (err != nil) || (nWrote < len("\""+string(messageBodyHex)+"\"\n\n")) {
+				return
 			}
-
 		}
 
 		if f, ok := w.(http.Flusher); ok {
@@ -221,12 +235,14 @@ func grabRoom(roomId int) *Room {
 	go func(myroom *Room) {
 
 		for t := range myroom.ticker.C {
+			var buffers []clientBuffer
 
-			if !myroom.isActive() {
-				continue
+			if myroom.isActive() {
+				buffers = myroom.mixOutputChannel(t)
+			} else {
+				buffers = myroom.getClientBuffers()
 			}
 
-			var buffers = myroom.mixOutputChannel(t)
 			for _, mybuf := range buffers {
 				myroom.writeClientChannel(mybuf)
 			}
@@ -245,8 +261,6 @@ func grabRoomPkey(roomName string, pubkey *ecdsa.PublicKey) *Room {
 
 	roomsMut.Lock()
 
-	defer roomsMut.Unlock()
-
 	//if room already exist return it
 
 	for i := 0; i < len(roomList); i++ {
@@ -256,6 +270,7 @@ func grabRoomPkey(roomName string, pubkey *ecdsa.PublicKey) *Room {
 		}
 
 		if roomList[i].name == roomName {
+			roomsMut.Unlock()
 			return roomList[i]
 		}
 	}
@@ -268,25 +283,27 @@ func grabRoomPkey(roomName string, pubkey *ecdsa.PublicKey) *Room {
 
 	newRoom = &Room{id: maxId + 1, creator: pubkey, name: roomName, desc: "no desc", RoomType: "no type", inputs: make([]*inputChannel, 0, 128), output: outputChannel{sampleRate: sampleRate, channels: channels, latencyMS: latencyMS, buffSize: (latencyMS * sampleRate * channels * 2) / 1000}}
 	newRoom.ticker = time.NewTicker(time.Millisecond * time.Duration(latencyMS))
+	roomList = append(roomList, newRoom)
+	roomsMut.Unlock()
 
 	sendMsg(Message{messageType: 8, roomID: newRoom.id})
 
 	go func(myroom *Room) {
 
 		for t := range myroom.ticker.C {
+			var buffers []clientBuffer
 
-			if !myroom.isActive() {
-				continue
+			if myroom.isActive() {
+				buffers = myroom.mixOutputChannel(t)
+			} else {
+				buffers = myroom.getClientBuffers()
 			}
 
-			var buffers = myroom.mixOutputChannel(t)
 			for _, mybuf := range buffers {
 				myroom.writeClientChannel(mybuf)
 			}
 		}
 	}(newRoom)
-
-	roomList = append(roomList, newRoom)
 
 	return newRoom
 }
@@ -405,43 +422,43 @@ func listMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var room *Room = nil
+
 	roomsMut.Lock()
-
-	defer roomsMut.Unlock()
-
-	//if room already exist return it
-
 	for i := 0; i < len(roomList); i++ {
 
 		if roomList[i].id == roomId {
-			members := roomList[i].roomMembers()
-			first := 1
-
-			membersJSON := "["
-
-			for _, cnf := range members {
-
-				if first == 0 {
-					membersJSON += ","
-				} else {
-					first = 0
-				}
-
-				mypubHEX := hex.EncodeToString(elliptic.MarshalCompressed(privateKey.Curve, cnf.pubkey.X, cnf.pubkey.Y))
-
-				membersJSON += "{ \"pubkey\" : \"" + mypubHEX + "\", \"mic\" : " + strconv.Itoa(cnf.mic) + ", \"hds\" : " + strconv.Itoa(cnf.hds) + "}"
-			}
-
-			membersJSON += "]"
-			w.Header().Set("Content-type", "application/json")
-			w.Write([]byte(membersJSON))
-			return
-
+			room = roomList[i]
 		}
 	}
+	roomsMut.Unlock()
 
-	http.Error(w, "room not found", 500)
-	return
+	if room == nil {
+		http.Error(w, "room not found", 500)
+		return
+	}
+
+	members := room.roomMembers()
+	first := 1
+
+	membersJSON := "["
+
+	for _, cnf := range members {
+
+		if first == 0 {
+			membersJSON += ","
+		} else {
+			first = 0
+		}
+
+		mypubHEX := hex.EncodeToString(elliptic.MarshalCompressed(privateKey.Curve, cnf.pubkey.X, cnf.pubkey.Y))
+
+		membersJSON += "{ \"pubkey\" : \"" + mypubHEX + "\", \"mic\" : " + strconv.Itoa(cnf.mic) + ", \"hds\" : " + strconv.Itoa(cnf.hds) + "}"
+	}
+
+	membersJSON += "]"
+	w.Header().Set("Content-type", "application/json")
+	w.Write([]byte(membersJSON))
 
 }
 
@@ -876,8 +893,22 @@ func handleJoinRoom(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 
+	client.cclose = false
+
+	notify := w.(http.CloseNotifier).CloseNotify()
+	go func() {
+		<-notify
+		println("The client closed the connection prematurely. Cleaning up.")
+		client.cclose = true
+		close(client.channel)
+	}()
+
 	for {
 		newBuffer := <-client.channel
+		if client.cclose == true {
+			break
+		}
+
 		if e.writeBuffer(newBuffer) != nil {
 			break
 		}

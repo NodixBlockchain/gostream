@@ -100,119 +100,34 @@
                 }
             }
 
-            getMemberHTML(roomID, member)
-            {
-                var li=document.createElement('li');
-                li.id = "room-"+roomID+"-member-id-"+member.pubkey;
-
-                    var h3=document.createElement('h3');
-                    h3.innerHTML='<span class="key" >'+member.pubkey+'</span>';
-                    li.append(h3);
-
-                    var mic=document.createElement('span');
-                    mic.id = "room-"+roomID+"-member-mic-"+member.pubkey;
-                    mic.className = (member.mic == 1 ) ? 'badge badge-success':'badge badge-danger'
-                    mic.innerHTML='mic';
-                    li.append(mic);
-
-                    var hds=document.createElement('span');
-                    hds.id = "room-"+roomID+"-member-hds-"+member.pubkey;
-                    hds.className = (member.hds == 1 ) ? 'badge badge-success':'badge badge-danger'
-                    hds.innerHTML='hds'
-                    li.append(hds);      
-                return li
-            }
-
-
-            updateMembers(roomID, members)
-            {
-                if(members.length<=0)
-                {
-                  $('#members-group-'+roomID).html('empty');
-                  return
-                }
-
-                var ul=document.createElement('ul');
-                ul.id = "members-"+roomID;
-
-                for(var i=0;i<members.length;i++)
-                {
-                    if(members[i].pubkey == this.pubkey)
-                    {
-                        var li=document.createElement('li');
-                        li.innerHTML='me'
-                        ul.append(li);
-                    }
-                    else
-                        ul.append(this.getMemberHTML(roomID,members[i]));
-                }
-
-                $('#members-group-'+roomID).html(ul);
-            }
-
-            findRoomId(name)
-            {
-                for(var i=0;i<this.groupes.length;i++)
-                {
-                    if(this.groupes[i].name == name)
-                        return this.groupes[i].id;
-                }
-                return 0;
-            }
-
-            updateGroupes(groupes)
-            {
-                var self=this;
-                var ul=document.createElement('ul');
-
-                this.groupes = groupes;
-
-                for(var i=0;i<groupes.length;i++)
-                {
-                    var li=document.createElement('li');
-                    li.id = "goupe-id-"+groupes[i].id;
-                    
-                    if(this.token != null)
-                    {
-                        li.setAttribute('grpid',groupes[i].id);
-                        li.onclick=function(){ $('#group-id').val($(this).attr('grpid')); }
-                    }
-                    else
-                    {
-                        li.setAttribute('grpid',groupes[i].id);
-                        li.setAttribute('grpname',groupes[i].name);
-                        li.onclick=function(){ $('#group-id').val($(this).attr('grpid')); $('#group-name').val($(this).attr('grpname')); }
-                    }
-
-                  
-
-                    var h3=document.createElement('h3');
-                    h3.innerHTML=groupes[i].name;
-                    li.append(h3);
-
-                    var h4=document.createElement('h4');
-                    h4.innerHTML=groupes[i].desc;
-                    li.append(h4);
-
-                    var div=document.createElement('div');
-                    div.id='members-group-'+groupes[i].id
-                    li.append(div);
-
-                    ul.append(li);
-
-                }
-
-                $('#groups').html(ul);
-            }
-
             isValidId(DestinationID)
             {
                 if(this.token == null)
                 {
                     if(DestinationID.length<65)
                         return false; 
-                }
 
+                    if(DestinationID == this.meID)    
+                    {
+                        $('#destination-error').html('cannot call self');
+                        return false; 
+                    }                        
+                }
+                else{
+
+                    var okey = this.ec.keyFromPublic(DestinationID,'hex');
+                    if(!okey)
+                    {
+                        $('#destination-error').html('invalid destination');
+                        return false; 
+                    }
+    
+                    if(okey.getPublic().encodeCompressed('hex') == this.pubkey)
+                    {
+                        $('#destination-error').html('cannot call self');
+                        return false;   
+                    }
+                }
                 return true;
             }
 
@@ -228,14 +143,12 @@
 
             listRoom()
             {
-                var self=this;
-                $.getJSON(this.HTTPProto + '://'+this.streamServer +'/listRoom', function(data){ self.updateGroupes(data);} );  
+                return $.getJSON(this.HTTPProto + '://'+this.streamServer +'/listRoom');  
             }
             
             listMembers(roomID)
             {
-                var self=this;
-                $.getJSON(this.HTTPProto + '://'+this.streamServer +'/listMembers?roomID='+roomID, function(data){ self.updateMembers(roomID,data);});  
+                return $.getJSON(this.HTTPProto + '://'+this.streamServer +'/listMembers?roomID='+roomID);  
             }
 
             
@@ -452,29 +365,10 @@
 
                 if(this.server.token != null) {
 
-                    if(DestinationID == this.meID)    
-                    {
-                        $('#destination-error').html('cannot call self');
-                        return false; 
-                    }
-                        
                     xhr = this.server.newCall(DestinationID);
 
                 }else{
-
-                    var okey = this.ec.keyFromPublic(DestinationID,'hex');
-                    if(!okey)
-                    {
-                        $('#destination-error').html('invalid destination');
-                        return false; 
-                    }
-    
-                    if(okey.getPublic().encodeCompressed('hex') == this.pubkey)
-                    {
-                        $('#destination-error').html('cannot call self');
-                        return false;   
-                    }
-                        
+                       
                     this.Challenge = this.createChallenge();
                     var signature = this.key.sign(this.enc.encode(this.server.serverChallenge)).toDER('hex');
                     xhr = this.server.newCall(DestinationID,this.Challenge,signature);
@@ -1146,6 +1040,8 @@
                 this.audioInput = null;
                 this.gainNode = null;
                 this.recorder =null;
+                this.groupes =null;
+                this.roomName=null;
 
                 this.roomID = 0
 
@@ -1189,6 +1085,29 @@
                 $('#group-down').html(SzTxt(this.totalRecv)) 
             }
 
+            getMemberHTML(member)
+            {
+                var li=document.createElement('li');
+                li.id = "room-"+this.roomID+"-member-id-"+member.pubkey;
+
+                    var h3=document.createElement('h3');
+                    h3.innerHTML='<span class="key" >'+member.pubkey+'</span>';
+                    li.append(h3);
+
+                    var mic=document.createElement('span');
+                    mic.id = "room-"+this.roomID+"-member-mic-"+member.pubkey;
+                    mic.className = (member.mic == 1 ) ? 'badge badge-success':'badge badge-danger'
+                    mic.innerHTML='mic';
+                    li.append(mic);
+
+                    var hds=document.createElement('span');
+                    hds.id = "room-"+this.roomID+"-member-hds-"+member.pubkey;
+                    hds.className = (member.hds == 1 ) ? 'badge badge-success':'badge badge-danger'
+                    hds.innerHTML='hds'
+                    li.append(hds);      
+                return li
+            }
+
             
             setAudioConf(data)
             {
@@ -1197,7 +1116,7 @@
                 if($('#room-'+data.roomid+'-member-id-'+data.from).length<=0){
 
                     if (( data.in == 1) || (data.in == 0))
-                    $("#members-"+data.roomid).append(this.server.getMemberHTML(data.roomid, {pubkey: data.from, mic : data.in, hds: data.out}));
+                    $("#members-"+data.roomid).append(this.getMemberHTML({pubkey: data.from, mic : data.in, hds: data.out}));
                     return;
                 }
 
@@ -1265,10 +1184,103 @@
                 return xhr;
             }
 
+            findRoomId(name)
+            {
+                if(this.groupes==null)return 0;
+
+                for(var i=0;i<this.groupes.length;i++)
+                {
+                    if(this.groupes[i].name == name)
+                        return this.groupes[i].id;
+                }
+                return 0;
+            }
+
+            updateMembers(members)
+            {
+                if(members.length<=0)
+                {
+                  $('#members-group-'+this.roomID).html('empty');
+                  return
+                }
+
+                var ul=document.createElement('ul');
+                ul.id = "members-"+this.roomID;
+
+                for(var i=0;i<members.length;i++)
+                {
+                    if(members[i].pubkey == this.pubkey)
+                    {
+                        var li=document.createElement('li');
+                        li.innerHTML='me'
+                        ul.append(li);
+                    }
+                    else
+                        ul.append(this.getMemberHTML(members[i]));
+                }
+
+                $('#members-group-'+this.roomID).html(ul);
+            }
+
+
+            updateGroupes(groupes)
+            {
+                var ul=document.createElement('ul');
+
+                this.groupes = groupes;
+
+                for(var i=0;i<groupes.length;i++)
+                {
+                    var li=document.createElement('li');
+                    li.id = "goupe-id-"+groupes[i].id;
+                    
+                    if(this.token != null)
+                    {
+                        li.setAttribute('grpid',groupes[i].id);
+                        li.onclick=function(){ $('#group-id').val($(this).attr('grpid')); }
+                    }
+                    else
+                    {
+                        li.setAttribute('grpid',groupes[i].id);
+                        li.setAttribute('grpname',groupes[i].name);
+                        li.onclick=function(){ $('#group-id').val($(this).attr('grpid')); $('#group-name').val($(this).attr('grpname')); }
+                    }
+
+                    var h3=document.createElement('h3');
+                    h3.innerHTML=groupes[i].name;
+                    li.append(h3);
+
+                    var h4=document.createElement('h4');
+                    h4.innerHTML=groupes[i].desc;
+                    li.append(h4);
+
+                    var div=document.createElement('div');
+                    div.id='members-group-'+groupes[i].id
+                    li.append(div);
+
+                    ul.append(li);
+
+                }
+
+                $('#groups').html(ul);
+            }
+
             newRoom(data)
             {
-                this.server.listRoom()
+                var self=this;
+                this.server.listRoom().done(function(grp_data){
+
+                     self.updateGroupes(grp_data); 
+
+                     if(self.roomName != null)
+                        self.roomID = self.findRoomId(self.roomName);
+
+                     if(self.roomID!=0){
+                        self.server.listMembers(self.roomID).done(function(members_data){ self.updateMembers(members_data); });
+                    }
+                })
             }
+            
             
             startReccording(roomID)
             {
@@ -1319,8 +1331,13 @@
 
                         if(self.roomID == 0)
                         {
-                            self.roomID = self.server.findRoomId(roomID);
-                            self.server.listMembers(self.roomID); 
+                            if( self.server.token != null){
+                                self.roomID = roomID;
+                            }else{
+                                self.roomName = roomID;
+                                self.roomID = self.findRoomId(self.roomName);
+                            }
+                            self.server.listMembers(self.roomID).done(function(data){ self.updateMembers(data);});
                         }
 
                         self.audioInput = self.audioContext.createMediaStreamSource(stream);
@@ -1425,8 +1442,13 @@
 
                     if(self.roomID == 0)
                     {
-                        self.roomID = self.server.findRoomId(roomID);
-                        self.server.listMembers(self.roomID); 
+                        if( self.server.token != null){
+                            self.roomID = roomID;
+                        }else{
+                            self.roomName = roomID;
+                            self.roomID = self.findRoomId(self.roomName);
+                        }
+                        self.server.listMembers(self.roomID).done(function(data){ self.updateMembers(data);});
                     }
 
                     
@@ -1529,7 +1551,7 @@
                     formData.append("Signature", Signature);
                 }
 
-                try {
+                //try {
 
                 fetch(this.server.HTTPProto + '://'+this.server.streamServer + '/joinRoom', { method:"POST",  headers : hdr, body : formData } )
                 .then(function(response) {
@@ -1551,10 +1573,14 @@
 
                     if(self.roomID == 0)
                     {
-                        self.roomID = self.server.findRoomId(roomID);
-                        self.server.listMembers(self.roomID); 
+                        if( self.server.token != null){
+                            self.roomID = roomID;
+                        }else{
+                            self.roomName = roomID;
+                            self.roomID = self.findRoomId(self.roomName);
+                        }
+                        self.server.listMembers(self.roomID).done(function(data){ self.updateMembers(data);});
                     }
-
 
                     var reader = response.body.getReader();
 
@@ -1636,7 +1662,7 @@
                         });
                     }
                     myread();
-                })
+                })/*
                 .catch(function(err){ alert('catch 2 '+err);});
                 }
                 catch(err)
@@ -1648,7 +1674,7 @@
                         this.playing = false;
                     throw err;
                     }
-                }
+                }*/
 
             }
 
@@ -1666,6 +1692,7 @@
                     this.startTime = null;
                     $('#members-group-'+this.roomID).empty();
                     this.roomID = 0;
+                    this.roomName = null;
                 }
                 
                 $('#play').removeClass('badge-success');  
@@ -1690,6 +1717,7 @@
                     this.startTime = null;
                     $('#members-group-'+this.roomID).empty();
                     this.roomID = 0;
+                    this.roomName = null;
                 }
 
                 if(this.stream)

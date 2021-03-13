@@ -12,7 +12,7 @@
 </head>
 
 <style>
-    .key {font-size:12px;}
+    .key {font-size:12px; font-weight:bold; background-color: rgba(200,200,200,0.75); border: 1px solid black; padding:2px}
 </style>
 
 <body>
@@ -23,13 +23,8 @@
        
         $(document).ready(function(){
 
-
             myserver = new StreamServer('localhost:8080','http','ws');
-            myserver.listRoom();
-
-
             myclient = new GroupClient("crypto");
-            
             myclient.initialize(myserver)
             .done( function(){
 
@@ -40,12 +35,18 @@
                         $('#moi').html(  myclient.server.userID ); 
                     });
                 }
-                    
+
+                myserver.listRoom().done(function(grp_data){
+                    myclient.updateGroupes(grp_data); 
+                });
 
                 $('#reccord').prop("disabled", false);
                 $('#play').prop("disabled", false);
             })
             .fail( function( jqxhr, textStatus, error ) { 
+
+                $('#reccord').prop("disabled", "disabled");
+                $('#play').prop("disabled", "disabled");
                 console.log( "error connecting streaming server " + textStatus ); 
             });
         });
@@ -56,39 +57,30 @@
     <div class="container">
         <h3>Groups</h3>
         <div  id="groups"></div>
-        <div class="row">
-            <div class="col"><label for="groupe-name">name:</label></div>
-            <div class="col"><input type="text" name="name" id="group-name" value="new group" /></div>
-        </div>
-        <div class="row">
-            <div class="col">group time :</div> <div class="col" id="group-time">00:00:00</div>
-        </div>
-    </div>        
+    </div>
     <hr/>
     <div class="container">
-        
         <input id="group-id" type="hidden" value="" />
-
+        <div class="row text-center">
+            <div class="col">me : <span id="moi"></span></div>
+        </div>
+        <hr/>
         <div class="row">
-            <div class="col">me :</div> <div class="col"><div id="moi"></div></div>
-        </div>        
-        <div class="row">
+            <div class="col"><input type="text" name="name" id="group-name" value="new group" /></div>
+            <div class="col" id="group-time">00:00:00</div>
             <div class="col">
                 <button id="reccord" class="badge badge-danger" onclick="myclient.startReccording($('#group-name').val());" disabled>mic</button>
             </div> 
             <div class="col" id="group-up"> - </div>
-        </div>
-
-        <div class="row">
             <div class="col"> 
                 <button id="play" class="badge badge-danger" onclick="  if($('#format').val() == 'wav') myclient.play($('#group-name').val()); else myclient.playOpus($('#group-name').val()); " disabled>hds</button>
                 <select id="format"><option value="wav">wav</option><option value="opus">opus</option></select>    
             </div> 
-            <div class="col" id="group-down"> - </div>
+            <div class="col" id="group-down"> - </div>            
         </div>
-    </div>
-
-
+    </div>        
+ 
+ 
 
 </body>
 
