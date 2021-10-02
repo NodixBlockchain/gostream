@@ -7,8 +7,8 @@ It can function in two modes with a side website that can provide and check iden
 
 demo on 
 
-http://nodix.eu:8080/html/calls.html
-http://nodix.eu:8080/html/group.html
+https://nodix.eu:8080/html/calls.html
+https://nodix.eu:8080/html/group.html
 
 # With side site
 
